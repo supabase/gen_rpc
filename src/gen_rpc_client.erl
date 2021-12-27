@@ -83,16 +83,16 @@ call(NodeOrTuple, M, F, A) ->
 
 %% Simple server call with custom receive timeout value
 -spec call(node_or_tuple(), atom() | tuple(), atom() | function(), list(), timeout()) -> term() | {badrpc,term()} | {badtcp,term()}.
-call(NodeOrTuple, M, F, A, RecvTO) ->
-    call(NodeOrTuple, M, F, A, RecvTO, undefined).
+call(NodeOrTuple, M, F, A, RecvTimeout) ->
+    call(NodeOrTuple, M, F, A, RecvTimeout, undefined).
 
 %% Simple server call with custom receive and send timeout values
 %% This is the function that all of the above call
 -spec call(node_or_tuple(), atom() | tuple(), atom() | function(), list(), timeout() | undefined, timeout() | undefined) ->
     term() | {badrpc,term()} | {badtcp,term()}.
-call(NodeOrTuple, M, F, A, RecvTO, SendTO) when ?is_node_or_tuple(NodeOrTuple), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A),
-                                         RecvTO =:= undefined orelse ?is_timeout(RecvTO),
-                                         SendTO =:= undefined orelse ?is_timeout(SendTO) ->
+call(NodeOrTuple, M, F, A, RecvTimeout, SendTimeout) when ?is_node_or_tuple(NodeOrTuple), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A),
+                                         RecvTimeout =:= undefined orelse ?is_timeout(RecvTimeout),
+                                         SendTimeout =:= undefined orelse ?is_timeout(SendTimeout) ->
     %% Create a unique name for the client because we register as such
     PidName = ?NAME(NodeOrTuple),
     case gen_rpc_registry:whereis_name(PidName) of
@@ -104,7 +104,7 @@ call(NodeOrTuple, M, F, A, RecvTO, SendTO) when ?is_node_or_tuple(NodeOrTuple), 
                     %% This is not resilient enough if the caller's mailbox is full
                     %% but it's good enough for now
                     try
-                        gen_server:call(NewPid, {{call,M,F,A}, SendTO}, gen_rpc_helper:get_call_receive_timeout(RecvTO))
+                        gen_server:call(NewPid, {{call,M,F,A}, SendTimeout}, gen_rpc_helper:get_call_receive_timeout(RecvTimeout))
                     catch
                         exit:{timeout,_Reason} -> {badrpc,timeout};
                         exit:OtherReason -> {badrpc, {unknown_error, OtherReason}}
@@ -115,7 +115,7 @@ call(NodeOrTuple, M, F, A, RecvTO, SendTO) when ?is_node_or_tuple(NodeOrTuple), 
         Pid ->
             ?log(debug, "event=client_process_found pid=\"~p\" target=\"~p\"", [Pid, NodeOrTuple]),
             try
-                gen_server:call(Pid, {{call,M,F,A}, SendTO}, gen_rpc_helper:get_call_receive_timeout(RecvTO))
+                gen_server:call(Pid, {{call,M,F,A}, SendTimeout}, gen_rpc_helper:get_call_receive_timeout(RecvTimeout))
             catch
                 exit:{timeout,_Reason} -> {badrpc,timeout};
                 exit:OtherReason -> {badrpc, {unknown_error, OtherReason}}
@@ -152,9 +152,9 @@ eval_everywhere(Nodes, M, F, A) ->
 
 %% Evaluate {M, F, A} on connected nodes.
 -spec eval_everywhere([atom()], atom() | tuple(), atom() | function(), list(), timeout() | undefined) -> abcast.
-eval_everywhere(Nodes, M, F, A, SendTO) when is_list(Nodes), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A),
-                                             SendTO =:= undefined orelse ?is_timeout(SendTO) ->
-    _ = [erlang:spawn(?MODULE, cast_worker, [Node, {cast,M,F,A}, abcast, SendTO]) || Node <- Nodes],
+eval_everywhere(Nodes, M, F, A, SendTimeout) when is_list(Nodes), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A),
+                                             SendTimeout =:= undefined orelse ?is_timeout(SendTimeout) ->
+    _ = [erlang:spawn(?MODULE, cast_worker, [Node, ?CAST(M, F, A), abcast, SendTimeout]) || Node <- Nodes],
     abcast.
 
 %% Simple server async_call with no args
@@ -289,11 +289,11 @@ init({Node}) ->
     end.
 
 %% This is the actual CALL handler
-handle_call({{call,_M,_F,_A} = PacketTuple, SendTO}, Caller, #state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
+handle_call({{call,_M,_F,_A} = PacketTuple, SendTimeout}, Caller, #state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
     Packet = erlang:term_to_binary({PacketTuple, Caller}),
     ?log(debug, "message=call event=constructing_call_term driver=~s socket=\"~s\" caller=\"~p\"",
          [Driver, gen_rpc_helper:socket_to_string(Socket), Caller]),
-    ok = DriverMod:set_send_timeout(Socket, SendTO),
+    ok = DriverMod:set_send_timeout(Socket, SendTimeout),
     case DriverMod:send(Socket, Packet) of
         {error, Reason} ->
             ?log(error, "message=call event=transmission_failed driver=~s socket=\"~s\" caller=\"~p\" reason=\"~p\"",
@@ -423,14 +423,14 @@ terminate(_Reason, #state{keepalive=KeepAlive}) ->
 %%% ===================================================
 %%% Private functions
 %%% ===================================================
-send_cast(PacketTuple, #state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State, SendTO, Activate) ->
-    ?tp(gen_rpc_send_cast, #{ sendto => SendTO
+send_cast(PacketTuple, #state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State, SendTimeout, Activate) ->
+    ?tp(gen_rpc_send_cast, #{ sendto => SendTimeout
                             , packet => PacketTuple
                             , driver => Driver
                             , socket => gen_rpc_helper:socket_to_string(Socket)
                             }),
     Packet = erlang:term_to_binary(PacketTuple),
-    ok = DriverMod:set_send_timeout(Socket, SendTO),
+    ok = DriverMod:set_send_timeout(Socket, SendTimeout),
     case DriverMod:send(Socket, Packet) of
         {error, Reason} ->
             ?tp(error, gen_rpc_error, #{ error  => transmission_failed
@@ -465,12 +465,12 @@ send_ping(#state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
             {noreply, State, gen_rpc_helper:get_inactivity_timeout(?MODULE)}
     end.
 
-cast_worker(NodeOrTuple, Cast, Ret, SendTO) ->
+cast_worker(NodeOrTuple, Cast, Ret, SendTimeout) ->
     %% Create a unique name for the client because we register as such
     PidName = ?NAME(NodeOrTuple),
     ?tp(gen_rpc_cast, #{ cast => Cast
                        , target => NodeOrTuple
-                       , sendto => SendTO
+                       , sendto => SendTimeout
                        , pid => PidName
                        }),
     case gen_rpc_registry:whereis_name(PidName) of
@@ -481,14 +481,14 @@ cast_worker(NodeOrTuple, Cast, Ret, SendTO) ->
                     %% We take care of CALL inside the gen_server
                     %% This is not resilient enough if the caller's mailbox is full
                     %% but it's good enough for now
-                    erlang:send(NewPid, {Cast, SendTO}),
+                    erlang:send(NewPid, {Cast, SendTimeout}),
                     Ret;
                 {error, _Reason} ->
                     Ret
             end;
         Pid ->
             ?tp(debug, gen_rpc_client_process_found, #{pid => Pid, target => NodeOrTuple}),
-            erlang:send(Pid, {Cast, SendTO}),
+            erlang:send(Pid, {Cast, SendTimeout}),
             Ret
     end.
 

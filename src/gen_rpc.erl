@@ -59,12 +59,12 @@ call(Node, M, F, A) ->
 
 -spec call(node_or_tuple(), atom() | tuple(), atom() | function(), list(), timeout() | undefined) ->
     term() | {badrpc, term()} | {badtcp | term()}.
-call(Node, M, F, A, RecvTO) ->
-    gen_rpc_client:call(Node, M, F, A, RecvTO).
+call(Node, M, F, A, RecvTimeout) ->
+    gen_rpc_client:call(Node, M, F, A, RecvTimeout).
 
 -spec call(node_or_tuple(), atom() | tuple(), atom() | function(), list(), timeout() | undefined, timeout() | undefined) -> term() | {badrpc, term()} | {badtcp | term()}.
-call(Node, M, F, A, RecvTO, SendTO) ->
-    gen_rpc_client:call(Node, M, F, A, RecvTO, SendTO).
+call(Node, M, F, A, RecvTimeout, SendTimeout) ->
+    gen_rpc_client:call(Node, M, F, A, RecvTimeout, SendTimeout).
 
 -spec cast(node_or_tuple(), atom() | tuple(), atom() | function()) -> true.
 cast(Node, M, F) ->
@@ -75,8 +75,8 @@ cast(Node, M, F, A) ->
     gen_rpc_client:cast(Node, M, F, A).
 
 -spec cast(node_or_tuple(), atom() | tuple(), atom() | function(), list(), timeout() | undefined) -> true.
-cast(Node, M, F, A, SendTO) ->
-    gen_rpc_client:cast(Node, M, F, A, SendTO).
+cast(Node, M, F, A, SendTimeout) ->
+    gen_rpc_client:cast(Node, M, F, A, SendTimeout).
 
 -spec eval_everywhere([node_or_tuple()], atom() | tuple(), atom() | function()) -> abcast.
 eval_everywhere(Nodes, M, F) ->
@@ -87,8 +87,8 @@ eval_everywhere(Nodes, M, F, A) ->
     gen_rpc_client:eval_everywhere(Nodes, M, F, A).
 
 -spec eval_everywhere([node_or_tuple()], atom() | tuple(), atom() | function(), list(), timeout() | undefined) -> abcast.
-eval_everywhere(Nodes, M, F, A, SendTO) ->
-    gen_rpc_client:eval_everywhere(Nodes, M, F, A, SendTO).
+eval_everywhere(Nodes, M, F, A, SendTimeout) ->
+    gen_rpc_client:eval_everywhere(Nodes, M, F, A, SendTimeout).
 
 -spec yield(tuple()) -> term() | {badrpc, term()}.
 yield(Key) ->

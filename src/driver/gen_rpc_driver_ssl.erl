@@ -103,9 +103,9 @@ authenticate_server(Socket) ->
     Cookie = erlang:get_cookie(),
     NodeStr = erlang:atom_to_list(node()),
     Packet = erlang:term_to_binary({gen_rpc_authenticate_connection, NodeStr, Cookie}),
-    SendTO = gen_rpc_helper:get_send_timeout(undefined),
-    RecvTO = gen_rpc_helper:get_call_receive_timeout(undefined),
-    ok = set_send_timeout(Socket, SendTO),
+    SendTimeout = gen_rpc_helper:get_send_timeout(undefined),
+    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
+    ok = set_send_timeout(Socket, SendTimeout),
     case ssl:send(Socket, Packet) of
         {error, Reason} ->
             ?log(error, "event=authentication_connection_failed socket=\"~s\" reason=\"~p\"",
@@ -114,7 +114,7 @@ authenticate_server(Socket) ->
             {error, {badtcp,Reason}};
         ok ->
             ?log(debug, "event=authentication_connection_succeeded socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
-            case ssl:recv(Socket, 0, RecvTO) of
+            case ssl:recv(Socket, 0, RecvTimeout) of
                 {ok, RecvPacket} ->
                     case erlang:binary_to_term(RecvPacket) of
                         gen_rpc_connection_authenticated ->
@@ -194,8 +194,8 @@ set_controlling_process(Socket, Pid) when is_tuple(Socket), is_pid(Pid) ->
     ssl:controlling_process(Socket, Pid).
 
 -spec set_send_timeout(ssl:sslsocket(), timeout() | undefined) -> ok.
-set_send_timeout(Socket, SendTO) when is_tuple(Socket) ->
-    ok = ssl:setopts(Socket, [{send_timeout, gen_rpc_helper:get_send_timeout(SendTO)}]),
+set_send_timeout(Socket, SendTimeout) when is_tuple(Socket) ->
+    ok = ssl:setopts(Socket, [{send_timeout, gen_rpc_helper:get_send_timeout(SendTimeout)}]),
     ok.
 
 -spec set_acceptor_opts(ssl:sslsocket()) -> ok.

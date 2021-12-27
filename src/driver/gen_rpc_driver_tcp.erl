@@ -85,9 +85,9 @@ send(Socket, Data) when is_port(Socket), is_binary(Data) ->
 authenticate_server(Socket) ->
     Cookie = erlang:get_cookie(),
     Packet = erlang:term_to_binary({gen_rpc_authenticate_connection, Cookie}),
-    SendTO = gen_rpc_helper:get_send_timeout(undefined),
-    RecvTO = gen_rpc_helper:get_call_receive_timeout(undefined),
-    ok = set_send_timeout(Socket, SendTO),
+    SendTimeout = gen_rpc_helper:get_send_timeout(undefined),
+    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
+    ok = set_send_timeout(Socket, SendTimeout),
     case gen_tcp:send(Socket, Packet) of
         {error, Reason} ->
             ?log(error, "event=authentication_connection_failed socket=\"~s\" reason=\"~p\"",
@@ -96,7 +96,7 @@ authenticate_server(Socket) ->
             {error, {badtcp,Reason}};
         ok ->
             ?log(debug, "event=authentication_connection_succeeded socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
-            case gen_tcp:recv(Socket, 0, RecvTO) of
+            case gen_tcp:recv(Socket, 0, RecvTimeout) of
                 {ok, RecvPacket} ->
                     case erlang:binary_to_term(RecvPacket) of
                         gen_rpc_connection_authenticated ->
@@ -187,8 +187,8 @@ set_controlling_process(Socket, Pid) when is_port(Socket), is_pid(Pid) ->
     gen_tcp:controlling_process(Socket, Pid).
 
 -spec set_send_timeout(port(), timeout() | undefined) -> ok.
-set_send_timeout(Socket, SendTO) when is_port(Socket) ->
-    ok = inet:setopts(Socket, [{send_timeout, gen_rpc_helper:get_send_timeout(SendTO)}]),
+set_send_timeout(Socket, SendTimeout) when is_port(Socket) ->
+    ok = inet:setopts(Socket, [{send_timeout, gen_rpc_helper:get_send_timeout(SendTimeout)}]),
     ok.
 
 -spec set_acceptor_opts(port()) -> ok.

@@ -37,7 +37,7 @@
 -export([start_link/1, stop/1]).
 
 %%% Server functions
--export([call/3, call/4, call/5, call/6, cast/3, cast/4, cast/5]).
+-export([call/3, call/4, call/5, call/6, cast/3, cast/4, cast/5, ordered_cast/4]).
 
 -export([async_call/3, async_call/4, yield/1, nb_yield/1, nb_yield/2]).
 
@@ -138,6 +138,13 @@ cast(NodeOrTuple, M, F, A) ->
 cast(NodeOrTuple, M, F, A, SendTimeout) when ?is_node_or_tuple(NodeOrTuple), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A),
                                  SendTimeout =:= undefined orelse ?is_timeout(SendTimeout) ->
     cast_worker(NodeOrTuple, ?CAST(M, F, A), undefined, SendTimeout),
+    true.
+
+%% Simple server cast with custom send timeout value
+%% This is the function that all of the above casts call
+-spec ordered_cast(destination(), atom() | tuple(), atom() | function(), list()) -> true.
+ordered_cast(NodeOrTuple, M, F, A) when ?is_node_or_tuple(NodeOrTuple), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A) ->
+    cast_worker(NodeOrTuple, ?ORDERED_CAST(M, F, A), undefined, undefined),
     true.
 
 %% Evaluate {M, F, A} on connected nodes.
@@ -340,9 +347,9 @@ handle_cast(Msg, #state{socket=Socket, driver=Driver} = State) ->
     {stop, {unknown_cast, Msg}, State}.
 
 %% This is the actual CAST handler for CAST
-handle_info({?CAST(_M,_F,_A) = PacketTuple, SendTimeout}, State = #state{max_batch_size = 0}) ->
+handle_info({{Cast, _M, _F, _A} = PacketTuple, SendTimeout}, State = #state{max_batch_size = 0}) when ?IS_CAST(Cast) ->
     send_cast(PacketTuple, State, SendTimeout, true);
-handle_info({?CAST(_M,_F,_A) = PacketTuple, SendTimeout}, State = #state{max_batch_size = MaxBatchSize}) ->
+handle_info({{Cast, _M, _F, _A} = PacketTuple, SendTimeout}, State = #state{max_batch_size = MaxBatchSize}) when ?IS_CAST(Cast) ->
     send_cast(drain_cast(MaxBatchSize, [PacketTuple]), State, SendTimeout, true);
 
 %% This is the actual CAST handler for ABCAST
@@ -424,11 +431,11 @@ terminate(_Reason, #state{keepalive=KeepAlive}) ->
 %%% Private functions
 %%% ===================================================
 send_cast(PacketTuple, #state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State, SendTimeout, Activate) ->
-    ?tp(gen_rpc_send_cast, #{ sendto => SendTimeout
-                            , packet => PacketTuple
-                            , driver => Driver
-                            , socket => gen_rpc_helper:socket_to_string(Socket)
-                            }),
+    ?tp(gen_rpc_send_packet, #{ packet  => PacketTuple
+                              , timeout => SendTimeout
+                              , driver  => Driver
+                              , socket  => gen_rpc_helper:socket_to_string(Socket)
+                              }),
     Packet = erlang:term_to_binary(PacketTuple),
     ok = DriverMod:set_send_timeout(Socket, SendTimeout),
     case DriverMod:send(Socket, Packet) of
@@ -469,11 +476,12 @@ send_ping(#state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
 cast_worker(NodeOrTuple, Cast, Ret, SendTimeout) ->
     %% Create a unique name for the client because we register as such
     PidName = ?NAME(NodeOrTuple),
-    ?tp(gen_rpc_cast, #{ cast => Cast
-                       , target => NodeOrTuple
-                       , sendto => SendTimeout
-                       , pid => PidName
-                       }),
+    ?tp(gen_rpc_input, #{ type => cast
+                        , input => Cast
+                        , target => NodeOrTuple
+                        , sendto => SendTimeout
+                        , pid => PidName
+                        }),
     case gen_rpc_registry:whereis_name(PidName) of
         undefined ->
             ?tp(info, gen_rpc_client_process_not_found, #{target => NodeOrTuple}),

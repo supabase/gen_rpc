@@ -13,6 +13,7 @@
 -behaviour(gen_statem).
 
 -include_lib("snabbkaffe/include/trace.hrl").
+-include("types.hrl").
 -include("logger.hrl").
 %%% Include this library's name macro
 -include("app.hrl").
@@ -148,11 +149,18 @@ waiting_for_data(info, {Driver,Socket,Data},
                          [Driver, gen_rpc_helper:socket_to_string(Socket), Control, CallType, RealM]),
                     reply_immediately({CallType, Caller, {badrpc,unauthorized}}, State)
             end;
-        ?CAST(_M, _F, _A) = Cast ->
-            _ = handle_cast(Cast, State),
+        ?CAST(M, F, A) ->
+            handle_cast(M, F, A, false, State),
+            {keep_state_and_data, gen_rpc_helper:get_inactivity_timeout(?MODULE)};
+        ?ORDERED_CAST(M, F, A) ->
+            handle_cast(M, F, A, true, State),
             {keep_state_and_data, gen_rpc_helper:get_inactivity_timeout(?MODULE)};
         BatchCast when is_list(BatchCast) ->
-            _ = [handle_cast(Cast, State) || Cast <- BatchCast],
+            lists:foreach(fun(?CAST(M, F, A))         -> handle_cast(M, F, A, false, State);
+                             (?ORDERED_CAST(M, F, A)) -> handle_cast(M, F, A, true, State);
+                             (Invalid)                -> ?tp(error, gen_rpc_invalid_batch, #{socket => gen_rpc_helper:socket_to_string(Socket), data => Invalid})
+                          end,
+                          BatchCast),
             {keep_state_and_data, gen_rpc_helper:get_inactivity_timeout(?MODULE)};
         {abcast, Name, Msg} ->
             _Result = case check_if_module_allowed(erlang, Control, List) of
@@ -321,25 +329,33 @@ check_module_version_compat({M, Version}) ->
 check_module_version_compat(M) ->
     {true, M}.
 
-handle_cast(?CAST(M, F, A), #state{socket=Socket, driver=Driver, peer=Peer, control=Control, list=List}) ->
+handle_cast(M, F, A, Ordered, #state{socket=Socket, driver=Driver, peer=Peer, control=Control, list=List}) ->
     {ModVsnAllowed, RealM} = check_module_version_compat(M),
     case check_if_module_allowed(RealM, Control, List) of
         true ->
             case ModVsnAllowed of
                 true ->
-                    ?log(debug, "event=cast_received driver=~s socket=\"~s\" peer=\"~s\" module=~s function=~s args=\"~0p\"", [Driver, gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), RealM, F, A]),
-                    _Pid = erlang:spawn(RealM, F, A);
+                    ?tp(debug, gen_rpc_exec_cast,
+                        #{ mfa    => {M, F, A}
+                         , socket => gen_rpc_helper:socket_to_string(Socket)
+                         , peer   => gen_rpc_helper:peer_to_string(Peer)
+                         }),
+                    exec_cast(RealM, F, A, Ordered);
                 false ->
                     ?log(debug, "event=incompatible_module_version driver=~s socket=\"~s\" module=~s",[Driver, gen_rpc_helper:socket_to_string(Socket), RealM])
             end;
         false ->
             ?log(debug, "event=request_not_allowed driver=~s socket=\"~s\" control=~s method=cast module=~s",[Driver, gen_rpc_helper:socket_to_string(Socket), Control, RealM])
+    end.
+
+exec_cast(M, F, A, _PreserveOrder = true) ->
+    {Pid, MRef} = erlang:spawn_monitor(M, F, A),
+    receive
+        {'DOWN', MRef, process, Pid, _} -> ok
     end;
-handle_cast(UnknownReq, #state{socket=Socket, driver=Driver, peer=Peer}) ->
-    ?log(debug, "event=invalid_cast_req driver=~s socket=\"~s\" peer=\"~s\" req=\"~p\"",
-         [Driver, gen_rpc_helper:socket_to_string(Socket),
-          gen_rpc_helper:peer_to_string(Peer), UnknownReq]),
-    error(invalid_cast_req).
+exec_cast(M, F, A, _PreserveOrder = false) ->
+    _ = erlang:spawn(M, F, A),
+    ok.
 
 reply_immediately(Payload, #state{driver_mod = DriverMod, driver = Driver, socket = Socket}) ->
     reply_call_result(Payload, Socket, Driver, DriverMod),

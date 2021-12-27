@@ -115,6 +115,9 @@ cast(_Config) ->
 cast_anonymous_function(_Config) ->
     true = gen_rpc:cast(?SLAVE, erlang, apply, [fun() -> os:timestamp() end, []]).
 
+ord_cast_anonymous_function(_Config) ->
+    true = gen_rpc:ordered_cast({?SLAVE, 1}, erlang, apply, [fun() -> os:timestamp() end, []]).
+
 cast_mfa_undef(_Config) ->
     true = gen_rpc:cast(?SLAVE, os, timestamp_undef, []).
 
@@ -126,6 +129,9 @@ cast_mfa_throw(_Config) ->
 
 cast_inexistent_node(_Config) ->
     true = gen_rpc:cast(?FAKE_NODE, os, timestamp, [], 1000).
+
+ord_cast_inexistent_node(_Config) ->
+    true = gen_rpc:ordered_cast({?FAKE_NODE, 1}, os, timestamp, []).
 
 call_node(_Config) ->
     ?SLAVE = gen_rpc:call(?SLAVE, erlang, node, []).
@@ -272,35 +278,28 @@ multiple_casts_test(_Config) ->
                              ),
            ok
        end,
-       fun(_Ret, Trace) ->
-               %% 1. Check that all casts were received by a local client process before sending over net:
-               ?assert(
-                  ?strict_causality( #{?snk_kind := test_cast, seqno := _SeqNo}
-                                   , #{?snk_kind := gen_rpc_cast, cast := {cast, gen_rpc_test_helper, test_call, [_SeqNo]}}
-                                   , Trace
-                                   )),
-               ?assert(
-                  ?strict_causality( #{?snk_kind := gen_rpc_cast,      cast   := _Cast, sendto := _SendTo}
-                                   , #{?snk_kind := gen_rpc_send_cast, packet := _Cast, sendto := _SendTo}
-                                   , Trace
-                                   )),
-               %% 2. Check that no message reordering occurs on the client side:
-               snabbkaffe:strictly_increasing(?projection(packet, ?of_kind(gen_rpc_send_cast, Trace))),
-               %% 3. Check that no errors were detected:
-               ?assertMatch([], ?of_kind(gen_rpc_error, Trace)),
-               %% 4. Check delivery of the messages:
-               ?assert(
-                  ?strict_causality( #{?snk_kind := gen_rpc_send_cast, packet := _Packet}
-                                   , #{?snk_kind := gen_rpc_acceptor_receive, packet := _Packet}
-                                   , Trace
-                                   )),
-               %% 5. Check that all the messages were delivered:
-               Calls = ?of_kind(do_test_call, Trace),
-               ?projection_complete(seqno, Calls, L),
-               %% 6. Check that all calls are executed in order:
-               %% snabbkaffe:strictly_increasing(Calls), %% FIXME: Fails due to bug
-               true
-       end).
+       gen_rpc_trace_props:cast_bundle()).
+
+multiple_ordered_casts_test(_Config) ->
+    %% Send multiple casts and check that they are received and executed in order
+    N = 10000,
+    L = [integer_to_binary(L) || L <- lists:seq(12000, 12000 + N)],
+    Last = lists:last(L),
+    ?check_trace(
+       begin
+           ?wait_async_action( [begin
+                                    ?tp(test_cast, #{seqno => I}),
+                                    true = gen_rpc:ordered_cast({?SLAVE, 1}, gen_rpc_test_helper, test_call, [I])
+                                end || I <- L]
+                             , #{?snk_kind := do_test_call, seqno := Last}
+                             ),
+           ok
+       end,
+       [ {"casts are executed in order",
+          fun(Trace) ->
+                  snabbkaffe:strictly_increasing(?projection(seqno, ?of_kind(do_test_call, Trace)))
+          end}
+       ] ++ gen_rpc_trace_props:cast_bundle()).
 
 %%% ===================================================
 %%% Auxiliary functions for test cases

@@ -140,8 +140,6 @@ cast(NodeOrTuple, M, F, A, SendTimeout) when ?is_node_or_tuple(NodeOrTuple), is_
     cast_worker(NodeOrTuple, ?CAST(M, F, A), undefined, SendTimeout),
     true.
 
-%% Simple server cast with custom send timeout value
-%% This is the function that all of the above casts call
 -spec ordered_cast(destination(), atom() | tuple(), atom() | function(), list()) -> true.
 ordered_cast(NodeOrTuple, M, F, A) when ?is_node_or_tuple(NodeOrTuple), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A) ->
     cast_worker(NodeOrTuple, ?ORDERED_CAST(M, F, A), undefined, undefined),
@@ -476,8 +474,7 @@ send_ping(#state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
 cast_worker(NodeOrTuple, Cast, Ret, SendTimeout) ->
     %% Create a unique name for the client because we register as such
     PidName = ?NAME(NodeOrTuple),
-    ?tp(gen_rpc_input, #{ type => cast
-                        , input => Cast
+    ?tp(gen_rpc_input, #{ input => Cast
                         , target => NodeOrTuple
                         , sendto => SendTimeout
                         , pid => PidName

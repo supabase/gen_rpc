@@ -55,7 +55,8 @@ client_receive_all_casts(Trace) ->
 
 %% Check that all casts initiated by the testcase were executed on the remote side:
 all_casts_are_executed(Trace) ->
-    ?strict_causality( #{?snk_kind := test_cast,    seqno := _SeqNo}
-                     , #{?snk_kind := do_test_call, seqno := _SeqNo}
-                     , Trace
-                     ).
+    ?assert(
+       ?strict_causality( #{?snk_kind := test_cast,    seqno := _SeqNo}
+                        , #{?snk_kind := do_test_call, seqno := _SeqNo}
+                        , Trace
+                        )).

@@ -441,8 +441,9 @@ send_cast(PacketTuple, #state{socket=Socket, driver=Driver, driver_mod=DriverMod
                                        }),
             {stop, Reason, State};
         ok ->
-            ok = if Activate =:= true -> DriverMod:activate_socket(Socket);
-                    true -> ok
+            ok = case Activate of
+                     true -> DriverMod:activate_socket(Socket);
+                     _    -> ok
                  end,
             ?log(debug, "message=cast event=transmission_succeeded driver=~s socket=\"~s\"",
                  [Driver, gen_rpc_helper:socket_to_string(Socket)]),

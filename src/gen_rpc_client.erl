@@ -135,9 +135,9 @@ cast(NodeOrTuple, M, F, A) ->
 %% Simple server cast with custom send timeout value
 %% This is the function that all of the above casts call
 -spec cast(node_or_tuple(), atom() | tuple(), atom() | function(), list(), timeout() | undefined) -> true.
-cast(NodeOrTuple, M, F, A, SendTO) when ?is_node_or_tuple(NodeOrTuple), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A),
-                                 SendTO =:= undefined orelse ?is_timeout(SendTO) ->
-    cast_worker(NodeOrTuple, {cast, M, F, A}, undefined, SendTO),
+cast(NodeOrTuple, M, F, A, SendTimeout) when ?is_node_or_tuple(NodeOrTuple), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A),
+                                 SendTimeout =:= undefined orelse ?is_timeout(SendTimeout) ->
+    cast_worker(NodeOrTuple, ?CAST(M, F, A), undefined, SendTimeout),
     true.
 
 %% Evaluate {M, F, A} on connected nodes.
@@ -340,10 +340,10 @@ handle_cast(Msg, #state{socket=Socket, driver=Driver} = State) ->
     {stop, {unknown_cast, Msg}, State}.
 
 %% This is the actual CAST handler for CAST
-handle_info({{cast,_M,_F,_A} = PacketTuple, SendTO}, State = #state{max_batch_size = 0}) ->
-    send_cast(PacketTuple, State, SendTO, true);
-handle_info({{cast,_M,_F,_A} = PacketTuple, SendTO}, State = #state{max_batch_size = MaxBatchSize}) ->
-    send_cast(drain_cast(MaxBatchSize, [PacketTuple]), State, SendTO, true);
+handle_info({?CAST(_M,_F,_A) = PacketTuple, SendTimeout}, State = #state{max_batch_size = 0}) ->
+    send_cast(PacketTuple, State, SendTimeout, true);
+handle_info({?CAST(_M,_F,_A) = PacketTuple, SendTimeout}, State = #state{max_batch_size = MaxBatchSize}) ->
+    send_cast(drain_cast(MaxBatchSize, [PacketTuple]), State, SendTimeout, true);
 
 %% This is the actual CAST handler for ABCAST
 handle_info({{abcast,_Name,_Msg} = PacketTuple, undefined}, State) ->
@@ -574,7 +574,7 @@ parse_sbcast_results([], _Ref, Results, _Timeout) ->
 drain_cast(N, CastReqs) when N =< 0 ->
     lists:reverse(CastReqs);
 drain_cast(N, CastReqs) ->
-    receive {{cast,_M,_F,_A} = Req, _} ->
+    receive {?CAST(_M,_F,_A) = Req, _} ->
         drain_cast(N-1, [Req | CastReqs])
     after 0 ->
         lists:reverse(CastReqs)

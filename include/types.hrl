@@ -5,4 +5,11 @@
 %%%
 
 %%% Node type
--type node_or_tuple() :: atom() | {atom(), term()}.
+-type destination() :: {node(), _Tag}.
+
+-type node_or_tuple() :: node() | destination().
+
+%% `gen_rpc' doesn't take advantage of atom indexing, so using short
+%% atom names saves a bit of bandwidth.
+-define(CAST(M, F, A), {cast, M, F, A}).
+-define(ORDERED_CAST(M, F, A), {oc, M, F, A}).

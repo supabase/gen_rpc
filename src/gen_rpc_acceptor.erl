@@ -148,7 +148,7 @@ waiting_for_data(info, {Driver,Socket,Data},
                          [Driver, gen_rpc_helper:socket_to_string(Socket), Control, CallType, RealM]),
                     reply_immediately({CallType, Caller, {badrpc,unauthorized}}, State)
             end;
-        {cast, _M, _F, _A} = Cast ->
+        ?CAST(_M, _F, _A) = Cast ->
             _ = handle_cast(Cast, State),
             {keep_state_and_data, gen_rpc_helper:get_inactivity_timeout(?MODULE)};
         BatchCast when is_list(BatchCast) ->
@@ -321,7 +321,7 @@ check_module_version_compat({M, Version}) ->
 check_module_version_compat(M) ->
     {true, M}.
 
-handle_cast({cast, M, F, A}, #state{socket=Socket, driver=Driver, peer=Peer, control=Control, list=List}) ->
+handle_cast(?CAST(M, F, A), #state{socket=Socket, driver=Driver, peer=Peer, control=Control, list=List}) ->
     {ModVsnAllowed, RealM} = check_module_version_compat(M),
     case check_if_module_allowed(RealM, Control, List) of
         true ->

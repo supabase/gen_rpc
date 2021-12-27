@@ -17,7 +17,7 @@
 -export([async_call/3, async_call/4, yield/1, nb_yield/1, nb_yield/2]).
 
 %% Cast and safe_cast
--export([cast/3, cast/4, cast/5]).
+-export([cast/3, cast/4, cast/5, ordered_cast/4]).
 
 %% Parallel evaluation
 -export([eval_everywhere/3, eval_everywhere/4, eval_everywhere/5]).
@@ -59,12 +59,12 @@ call(Node, M, F, A) ->
 
 -spec call(node_or_tuple(), atom() | tuple(), atom() | function(), list(), timeout() | undefined) ->
     term() | {badrpc, term()} | {badtcp | term()}.
-call(Node, M, F, A, RecvTO) ->
-    gen_rpc_client:call(Node, M, F, A, RecvTO).
+call(Node, M, F, A, RecvTimeout) ->
+    gen_rpc_client:call(Node, M, F, A, RecvTimeout).
 
 -spec call(node_or_tuple(), atom() | tuple(), atom() | function(), list(), timeout() | undefined, timeout() | undefined) -> term() | {badrpc, term()} | {badtcp | term()}.
-call(Node, M, F, A, RecvTO, SendTO) ->
-    gen_rpc_client:call(Node, M, F, A, RecvTO, SendTO).
+call(Node, M, F, A, RecvTimeout, SendTimeout) ->
+    gen_rpc_client:call(Node, M, F, A, RecvTimeout, SendTimeout).
 
 -spec cast(node_or_tuple(), atom() | tuple(), atom() | function()) -> true.
 cast(Node, M, F) ->
@@ -75,8 +75,19 @@ cast(Node, M, F, A) ->
     gen_rpc_client:cast(Node, M, F, A).
 
 -spec cast(node_or_tuple(), atom() | tuple(), atom() | function(), list(), timeout() | undefined) -> true.
-cast(Node, M, F, A, SendTO) ->
-    gen_rpc_client:cast(Node, M, F, A, SendTO).
+cast(Node, M, F, A, SendTimeout) ->
+    gen_rpc_client:cast(Node, M, F, A, SendTimeout).
+
+%% @doc Execution order of these casts is first-in first-out, unlike
+%% regular casts that can be executed in any order. This of course
+%% means that a long call will block the entire queue for the
+%% destination tag.
+-spec ordered_cast(destination(), module() | tuple(), atom() | function(), list()) -> true.
+ordered_cast(Dest = {_, _}, M, F, A) ->
+    gen_rpc_client:ordered_cast(Dest, M, F, A);
+ordered_cast(Dest, _, _, _) ->
+    %% Don't allow ordered_cast without a tag, since it's very slow:
+    error({badarg, Dest}).
 
 -spec eval_everywhere([node_or_tuple()], atom() | tuple(), atom() | function()) -> abcast.
 eval_everywhere(Nodes, M, F) ->
@@ -87,8 +98,8 @@ eval_everywhere(Nodes, M, F, A) ->
     gen_rpc_client:eval_everywhere(Nodes, M, F, A).
 
 -spec eval_everywhere([node_or_tuple()], atom() | tuple(), atom() | function(), list(), timeout() | undefined) -> abcast.
-eval_everywhere(Nodes, M, F, A, SendTO) ->
-    gen_rpc_client:eval_everywhere(Nodes, M, F, A, SendTO).
+eval_everywhere(Nodes, M, F, A, SendTimeout) ->
+    gen_rpc_client:eval_everywhere(Nodes, M, F, A, SendTimeout).
 
 -spec yield(tuple()) -> term() | {badrpc, term()}.
 yield(Key) ->

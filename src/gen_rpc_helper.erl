@@ -161,8 +161,8 @@ get_connect_timeout() ->
 %% Merges user-defined call receive timeout values with app timeout values
 -spec get_call_receive_timeout(undefined | timeout()) -> timeout().
 get_call_receive_timeout(undefined) ->
-    {ok, RecvTO} = application:get_env(?APP, call_receive_timeout),
-    RecvTO;
+    {ok, RecvTimeout} = application:get_env(?APP, call_receive_timeout),
+    RecvTimeout;
 
 get_call_receive_timeout(Else) ->
     Else.
@@ -186,20 +186,20 @@ get_authentication_timeout() ->
 %% Returns the default sbcast receive timeout
 -spec get_sbcast_receive_timeout() -> timeout().
 get_sbcast_receive_timeout() ->
-    {ok, RecvTO} = application:get_env(?APP, sbcast_receive_timeout),
-    RecvTO.
+    {ok, RecvTimeout} = application:get_env(?APP, sbcast_receive_timeout),
+    RecvTimeout.
 
 %% Returns the default dispatch receive timeout
 -spec get_control_receive_timeout() -> timeout().
 get_control_receive_timeout() ->
-    {ok, RecvTO} = application:get_env(?APP, control_receive_timeout),
-    RecvTO.
+    {ok, RecvTimeout} = application:get_env(?APP, control_receive_timeout),
+    RecvTimeout.
 
 %% Merges user-defined send timeout values with app timeout values
 -spec get_send_timeout(undefined | timeout()) -> timeout().
 get_send_timeout(undefined) ->
-    {ok, SendTO} = application:get_env(?APP, send_timeout),
-    SendTO;
+    {ok, SendTimeout} = application:get_env(?APP, send_timeout),
+    SendTimeout;
 get_send_timeout(Else) ->
     Else.
 

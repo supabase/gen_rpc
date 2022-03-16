@@ -580,8 +580,11 @@ parse_sbcast_results([], _Ref, Results, _Timeout) ->
 drain_cast(N, CastReqs) when N =< 0 ->
     lists:reverse(CastReqs);
 drain_cast(N, CastReqs) ->
-    receive {?CAST(_M,_F,_A) = Req, _} ->
-        drain_cast(N-1, [Req | CastReqs])
+    receive
+        {?CAST(_M,_F,_A) = Req, _} ->
+            drain_cast(N-1, [Req | CastReqs]);
+        {?ORDERED_CAST(_M, _F, _A) = Req, _} ->
+            drain_cast(N-1, [Req | CastReqs])
     after 0 ->
         lists:reverse(CastReqs)
     end.

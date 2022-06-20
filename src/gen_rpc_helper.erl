@@ -27,6 +27,7 @@
          is_driver_enabled/1,
          merge_sockopt_lists/2,
          get_user_tcp_opts/0,
+         get_listen_ip_config/0,
          user_tcp_opt_key/1,
          get_server_driver_options/1,
          get_client_config_per_node/1,
@@ -257,6 +258,12 @@ get_user_tcp_opts(Keys) ->
                 {ok, Val} -> [{user_tcp_opt_key(Key), Val} | OptAcc]
             end
         end, [], Keys).
+
+get_listen_ip_config() ->
+    case application:get_env(?APP, socket_ip) of
+        undefined -> [];
+        {ok, IP} -> [{ip, IP}]
+    end.
 
 user_tcp_opt_key(socket_buffer) -> buffer;
 user_tcp_opt_key(socket_recbuf) -> recbuf;

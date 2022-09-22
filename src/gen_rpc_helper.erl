@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
+%%% Copyright 2015, 2022 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 
 -module(gen_rpc_helper).
@@ -27,7 +27,6 @@
          is_driver_enabled/1,
          merge_sockopt_lists/2,
          get_user_tcp_opts/0,
-         get_listen_ip_config/0,
          user_tcp_opt_key/1,
          get_server_driver_options/1,
          get_client_config_per_node/1,
@@ -270,11 +269,6 @@ user_tcp_opt_key(socket_buffer) -> buffer;
 user_tcp_opt_key(socket_recbuf) -> recbuf;
 user_tcp_opt_key(socket_sndbuf) -> sndbuf.
 
-get_listen_ip_config() ->
-    case application:get_env(?APP, socket_ip) of
-        undefined -> [];
-        {ok, IP} -> [{ip, IP}]
-    end.
 
 %% @doc Figure out dist port from node's name.
 -spec(port(node() | string()) -> inet:port_number()).

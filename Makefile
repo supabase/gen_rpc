@@ -1,5 +1,5 @@
 #
-# Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
+# Copyright 2015, 2022 Panagiotis Papadomitsos. All Rights Reserved.
 #
 # Build targets:
 #
@@ -87,7 +87,7 @@ all: $(REBAR)
 	@REBAR_PROFILE=dev $(REBAR) do compile
 
 test: $(REBAR) epmd
-	@REBAR_PROFILE=test $(REBAR) do ct -c, cover
+	@REBAR_PROFILE=test $(REBAR) do eunit, ct -c, cover
 
 dialyzer: $(REBAR) $(PLT_FILE)
 	@REBAR_PROFILE=dev $(REBAR) do dialyzer

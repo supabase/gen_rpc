@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
+%%% Copyright 2015, 2022 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
 %%% https://erlangcentral.org/wiki/index.php?title=Building_a_Non-blocking_TCP_server_using_OTP_principles
@@ -81,9 +81,62 @@ send(Socket, Data) when is_port(Socket), is_binary(Data) ->
             ok
     end.
 
-%% Authenticate to a server
 -spec authenticate_server(port()) -> ok | {error, {badtcp | badrpc, term()}}.
-authenticate_server(Socket) ->
+authenticate_server(Port) ->
+    case application:get_env(gen_rpc, insecure_authentication, false) of
+        false ->
+            authenticate_server_cr(Port);
+        true ->
+            authenticate_server_insecure(Port)
+    end.
+
+-spec authenticate_server_cr(port()) -> ok | {error, {badtcp | badrpc, term()}}.
+authenticate_server_cr(Socket) ->
+    ok = set_send_timeout(Socket, SendTimeout),
+    SockName = gen_rpc_helper:socket_to_string(Socket),
+    {ClientChallenge, Packet} = gen_rpc_auth:stage1(),
+    case gen_tcp:send(Socket, Packet) of
+        {error, Reason} ->
+            ?tp(error, gen_rpc_authentication_connection_failed,
+                #{ socket => SockName
+                 , reason => Reason
+                 }),
+            ok = gen_tcp:close(Socket),
+            {error, {badtcp, Reason}};
+        ok ->
+            ?tp(debug, gen_rpc_authentication_stage1,
+                #{ socket    => SockName
+                 , challenge => ClientChallenge
+                 }),
+            case gen_tcp:recv(Socket, 0, RecvTimeout) of
+                {ok, RecvPacket} ->
+                    case gen_rpc_auth:stage3(ClientChallenge, RecvPacket) of
+                        {ok, Packet2} ->
+                            ?tp(debug, gen_rpc_authentication_stage3,
+                                #{ socket => SockName
+                                 }),
+                            gen_tcp:send(Socket, Packet2),
+                            ok;
+                        {error, Err} ->
+                            ?tp(error, gen_rpc_authentication_bad_cookie,
+                                #{ socket => SockName
+                                 , error  => Error
+                                 }),
+                            ok = gen_tcp:close(Socket),
+                            {error, {badrpc, Err}}
+                    end;
+                {error, Reason} ->
+                    ?tp(error, gen_rpc_authentication_stage3_badtcp,
+                        #{ socket => SockName
+                         , error  => Reason
+                         }),
+                    ok = gen_tcp:close(Socket),
+                    {error, {badtcp, Reason}}
+            end
+    end.
+
+-spec authenticate_server_insecure(port()) -> ok | {error, {badtcp | badrpc, term()}}.
+authenticate_server_insecure(Socket) ->
     Cookie = erlang:get_cookie(),
     Packet = erlang:term_to_binary({gen_rpc_authenticate_connection, Cookie}),
     SendTimeout = gen_rpc_helper:get_send_timeout(undefined),

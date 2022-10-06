@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
+%%% Copyright 2015, 2022 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
 %%% https://erlangcentral.org/wiki/index.php?title=Building_a_Non-blocking_TCP_server_using_OTP_principles
@@ -39,7 +39,7 @@
 -export([init/1, handle_event/4, callback_mode/0, terminate/3, code_change/4]).
 
 %% State machine states
--export([waiting_for_socket/3, waiting_for_auth/3, waiting_for_data/3]).
+-export([waiting_for_socket/3, waiting_for_data/3]).
 
 %%% Process exports
 -export([call_worker/8, call_middleman/3]).
@@ -84,7 +84,6 @@ callback_mode() ->
 
 waiting_for_socket({call,From}, {socket_ready,Socket}, #state{driver=Driver, driver_mod=DriverMod, peer=Peer} = State) ->
     ok = DriverMod:set_acceptor_opts(Socket),
-    ActivateResult = DriverMod:activate_socket(Socket),
     % Now we own the socket
     ?tp(gen_rpc_acquiring_socket_ownership,
         #{ driver    => Driver
@@ -92,33 +91,7 @@ waiting_for_socket({call,From}, {socket_ready,Socket}, #state{driver=Driver, dri
          , peer      => gen_rpc_helper:peer_to_string(Peer)
          }),
     ok = gen_statem:reply(From, ok),
-    case ActivateResult of
-        ok ->
-            {next_state, waiting_for_auth, State#state{socket=Socket}, gen_rpc_helper:get_authentication_timeout()};
-        {error, _Posix} ->
-            ?log(notice, "message=channel_closed before receiving any data driver=~p socket=\"~s\" peer=\"~s\"",
-                 [Driver, gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)]),
-            {stop, normal, State}
-    end.
-
-waiting_for_auth(info, {Driver,Socket,Data}, #state{socket=Socket, driver=Driver, driver_mod=DriverMod, peer=Peer} = State) ->
-    case DriverMod:authenticate_client(Socket, Peer, Data) of
-        {error, Reason} ->
-            {stop, Reason, State};
-        ok ->
-            {next_state, waiting_for_data, State}
-    end;
-
-waiting_for_auth(timeout, _Timeout, #state{socket=Socket, driver=Driver, peer=Peer} = State) ->
-    ?log(notice, "event=timed_out_waiting_for_auth driver=~s socket=\"~s\" peer=\"~s\"",
-         [Driver, gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)]),
-    {stop, timed_out_waiting_for_auth, State};
-
-waiting_for_auth(info, {DriverClosed, Socket} = Msg, #state{socket=Socket, driver_closed=DriverClosed} = State) ->
-    handle_event(info, Msg, waiting_for_auth, State);
-
-waiting_for_auth(info, {DriverError, Socket, _Reason} = Msg, #state{socket=Socket, driver_error=DriverError} = State) ->
-    handle_event(info, Msg, waiting_for_auth, State).
+    wait_for_auth(State#state{socket = Socket}).
 
 waiting_for_data(info, {Driver,Socket,Data},
                  #state{socket=Socket, driver=Driver, driver_mod=DriverMod, peer=Peer, control=Control, list=List} = State) ->
@@ -255,6 +228,23 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%% ===================================================
 %%% Private functions
 %%% ===================================================
+
+
+wait_for_auth(#state{socket=Socket, driver=Driver, driver_mod=DriverMod, peer=Peer} = State) ->
+    case gen_rpc_auth:authenticate_client(DriverMod, Socket, Peer) of
+        {error, Reason} ->
+            {stop, Reason, State};
+        ok ->
+            case DriverMod:activate_socket(Socket) of
+                ok ->
+                    {next_state, waiting_for_data, State};
+                {error, _Posix} ->
+                    ?log(notice, "message=channel_closed before receiving any data driver=~p socket=\"~s\" peer=\"~s\"",
+                         [Driver, gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)]),
+                    {stop, normal, State}
+            end
+    end.
+
 %% Process an RPC call request outside of the state machine
 call_worker(CallType, M, F, A, Caller, Socket, Driver, DriverMod) ->
     ?log(debug, "event=call_received caller=\"~p\" module=~s function=~s args=\"~0p\"", [Caller, M, F, A]),

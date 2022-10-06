@@ -15,13 +15,16 @@
 %%--------------------------------------------------------------------
 -module(gen_rpc_auth).
 
+-include("logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
+
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
 %% API:
--export([stage1/0, stage2/2, stage2/1, stage3/3, stage3/2, stage4/3, stage4/2]).
+-export([authenticate_server/2, authenticate_client/3, get_cookie/0]).
 
 %%================================================================================
 %% Types
@@ -48,7 +51,189 @@
         }).
 
 %%================================================================================
-%% API funcions
+%% API
+%%================================================================================
+
+-spec authenticate_server(module(), term()) ->  ok | {error, {badtcp | badrpc, term()}}.
+authenticate_server(Driver, Socket) ->
+    ok = Driver:set_send_timeout(Socket, gen_rpc_helper:get_send_timeout(undefined)),
+    Fallback = insecure_fallback(),
+    Peer = Driver:get_peer(Socket),
+    case authenticate_server_cr(Driver, Socket) of
+        old when Fallback ->
+            ?tp(warning, gen_rpc_insecure_fallback, #{peer => Peer}),
+            authenticate_server_insecure(Driver, Socket);
+        Result ->
+            Result
+    end.
+
+-spec authenticate_client(module(), term(), tuple()) -> ok | {error, {badtcp | badrpc, term()}}.
+authenticate_client(Driver, Socket, Peer) ->
+    ok = Driver:set_send_timeout(Socket, gen_rpc_helper:get_send_timeout(undefined)),
+    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
+    Fallback = insecure_fallback(),
+    case Driver:recv(Socket, 0, RecvTimeout) of
+        {ok, Data} ->
+            case authenticate_client_cr(Driver, Socket, Data) of
+                {error, {badarg, _}} when Fallback ->
+                    ?tp(warning, gen_rpc_insecure_fallback, #{peer => Peer}),
+                    authenticate_client_insecure(Driver, Socket, Peer, Data);
+                Result ->
+                    Result
+            end;
+        {error, Reason} ->
+            ?tp(error, gen_rpc_client_auth_timeout, #{peer => Peer, error => Reason}),
+            {error, {badtcp, Reason}}
+    end.
+
+%%================================================================================
+%% Challenge-response
+%%================================================================================
+
+-spec authenticate_server_cr(module(), port()) -> ok | {error, {badtcp | badrpc, term()}}.
+authenticate_server_cr(Driver, Socket) ->
+    Peer = Driver:get_peer(Socket),
+    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
+    {ClientChallenge, Packet} = stage1(),
+    case Driver:send(Socket, Packet) of
+        {error, Reason} ->
+            ?tp(error, gen_rpc_authentication_connection_failed, #{socket => Socket, peer => Peer, reason => Reason}),
+            ok = Driver:close(Socket),
+            {error, {badtcp, Reason}};
+        ok ->
+            ?tp(debug, gen_rpc_authentication_stage, #{stage => 1, socket => Socket, peer => Peer, challenge => ClientChallenge}),
+            case Driver:recv(Socket, 0, RecvTimeout) of
+                {ok, RecvPacket} ->
+                    Result3 = stage3(ClientChallenge, RecvPacket),
+                    ?tp(debug, gen_rpc_authentication_stage, #{stage => 3, socket => Socket, peer => Peer, result => Result3}),
+                    case Result3 of
+                        {ok, Packet2} ->
+                            Driver:send(Socket, Packet2);
+                        {error, Error} ->
+                            ?tp(error, gen_rpc_authentication_bad_cookie, #{socket => Socket, error => Error, peer => Peer}),
+                            ok = Driver:close(Socket),
+                            {error, {badrpc, Error}}
+                    end;
+                {error, Reason} ->
+                    ?tp(error, gen_rpc_authentication_stage3_badtcp, #{socket => Socket, error => Reason, peer => Peer}),
+                    ok = Driver:close(Socket),
+                    {error, {badtcp, Reason}}
+            end
+    end.
+
+-spec authenticate_client_cr(module(), port(), binary()) -> ok | {error, {badtcp | badrpc, term()}}.
+authenticate_client_cr(Driver, Socket, Data) ->
+    Peer = Driver:get_peer(Socket),
+    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
+    Result2 = stage2(Data),
+    ?tp(debug, gen_rpc_authentication_stage, #{stage => 2, socket => Socket, peer => Peer, result => Result2}),
+    case Result2 of
+        {ok, {ServerChallenge, Packet}} ->
+            case Driver:send(Socket, Packet) of
+                ok ->
+                    case Driver:recv(Socket, 0, RecvTimeout) of
+                        {ok, RecvPacket} ->
+                            Result = stage4(ServerChallenge, RecvPacket),
+                            ?tp(debug, gen_rpc_authentication_stage, #{stage => 4, socket => Socket, peer => Peer, result => Result}),
+                            Result;
+                        {error, Reason} ->
+                            ?tp(error, gen_rpc_authentication_stage4_timeout, #{socket => Socket, reason => Reason, peer => Peer}),
+                            {error, {badrpc, Reason}}
+                    end;
+                {error, Reason} ->
+                    ?tp(error, gen_rpc_authentication_stage4_badtcp, #{socket => Socket, reason => Reason, peer => Peer}),
+                    {error, {badtcp, Reason}}
+            end;
+        Error ->
+            Error
+    end.
+
+%%================================================================================
+%% Insecure fallback
+%%================================================================================
+
+-spec authenticate_server_insecure(module(), port()) -> ok | {error, {badtcp | badrpc, term()}}.
+authenticate_server_insecure(Driver, Socket) ->
+    Cookie = erlang:get_cookie(),
+    Packet = erlang:term_to_binary({gen_rpc_authenticate_connection, Cookie}),
+    SendTimeout = gen_rpc_helper:get_send_timeout(undefined),
+    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
+    ok = Driver:set_send_timeout(Socket, SendTimeout),
+    case Driver:send(Socket, Packet) of
+        {error, Reason} ->
+            ?log(error, "event=authentication_connection_failed socket=\"~s\" reason=\"~p\"",
+                 [gen_rpc_helper:socket_to_string(Socket), Reason]),
+            ok = Driver:close(Socket),
+            {error, {badtcp,Reason}};
+        ok ->
+            ?log(debug, "event=authentication_connection_succeeded socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
+            case Driver:recv(Socket, 0, RecvTimeout) of
+                {ok, RecvPacket} ->
+                    case erlang:binary_to_term(RecvPacket) of
+                        gen_rpc_connection_authenticated ->
+                            ?log(debug, "event=connection_authenticated socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
+                            ok;
+                        {gen_rpc_connection_rejected, invalid_cookie} ->
+                            ?log(error, "event=authentication_rejected socket=\"~s\" reason=\"invalid_cookie\"",
+                                 [gen_rpc_helper:socket_to_string(Socket)]),
+                            ok = Driver:close(Socket),
+                            {error, {badrpc,invalid_cookie}};
+                        _Else ->
+                            ?log(error, "event=authentication_reception_error socket=\"~s\" reason=\"invalid_payload\"",
+                                 [gen_rpc_helper:socket_to_string(Socket)]),
+                            ok = Driver:close(Socket),
+                            {error, {badrpc,invalid_message}}
+                    end;
+                {error, Reason} ->
+                    ?log(error, "event=authentication_reception_failed socket=\"~s\" reason=\"~p\"",
+                         [gen_rpc_helper:socket_to_string(Socket), Reason]),
+                    ok = Driver:close(Socket),
+                    {error, {badtcp,Reason}}
+            end
+    end.
+
+-spec authenticate_client_insecure(module(), port(), tuple(), binary()) -> ok | {error, {badtcp | badrpc, term()}}.
+authenticate_client_insecure(Driver, Socket, Peer, Data) ->
+    Cookie = erlang:get_cookie(),
+    try erlang:binary_to_term(Data) of
+        {gen_rpc_authenticate_connection, Cookie} ->
+            Packet = erlang:term_to_binary(gen_rpc_connection_authenticated),
+            Result = case Driver:send(Socket, Packet) of
+                {error, Reason} ->
+                    ?log(error, "event=transmission_failed socket=\"~s\" peer=\"~s\" reason=\"~p\"",
+                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), Reason]),
+                    {error, {badtcp,Reason}};
+                ok ->
+                    ?log(debug, "event=transmission_succeeded socket=\"~s\" peer=\"~s\"",
+                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)]),
+                    ok = Driver:activate_socket(Socket),
+                    ok
+            end,
+            Result;
+        {gen_rpc_authenticate_connection, _IncorrectCookie} ->
+            ?log(error, "event=invalid_cookie_received socket=\"~s\" peer=\"~s\"",
+                 [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)]),
+            Packet = erlang:term_to_binary({gen_rpc_connection_rejected, invalid_cookie}),
+            ok = case Driver:send(Socket, Packet) of
+                {error, Reason} ->
+                    ?log(error, "event=transmission_failed socket=\"~s\" peer=\"~s\" reason=\"~p\"",
+                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), Reason]);
+                ok ->
+                    ?log(debug, "event=transmission_succeeded socket=\"~s\" peer=\"~s\"",
+                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)])
+            end,
+            {error, {badrpc,invalid_cookie}};
+        OtherData ->
+            ?log(debug, "event=erroneous_data_received socket=\"~s\" peer=\"~s\" data=\"~p\"",
+                 [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), OtherData]),
+            {error, {badrpc,erroneous_data}}
+    catch
+        error:badarg ->
+            {error, {badtcp,corrupt_data}}
+    end.
+
+%%================================================================================
+%% Challenge-response stages (pure functions)
 %%================================================================================
 
 -spec stage1() -> {challenge(), packet()}.
@@ -57,15 +242,15 @@ stage1() ->
 
 -spec stage2(packet()) -> {ok, {challenge(), packet()}} | {error, _}.
 stage2(Packet) ->
-    stage2(erlang:get_cookie(), Packet).
+    stage2(?MODULE:get_cookie(), Packet).
 
 -spec stage3(challenge(), packet()) -> {ok, packet()} | {error, _}.
 stage3(MyChallenge, Packet) ->
-    stage3(erlang:get_cookie(), MyChallenge, Packet).
+    stage3(?MODULE:get_cookie(), MyChallenge, Packet).
 
 -spec stage4(challenge(), packet()) -> ok | {error, _}.
 stage4(MyChallenge, Packet) ->
-    stage4(erlang:get_cookie(), MyChallenge, Packet).
+    stage4(?MODULE:get_cookie(), MyChallenge, Packet).
 
 -spec stage2(secret(), packet()) -> {ok, {challenge(), packet()}} | {error, _}.
 stage2(Secret, Packet) ->
@@ -93,9 +278,8 @@ stage4(Secret, MyChallenge, Packet) ->
     check_r(Secret, MyChallenge, Packet).
 
 %%================================================================================
-%% Internal functions
+%% Internal pure functions
 %%================================================================================
-
 
 -spec make_c() -> {challenge(), packet()}.
 make_c() ->
@@ -120,7 +304,7 @@ check_cr(Secret, MyChallenge, Packet) ->
                 true ->
                     {ok, NewChallenge};
                 false ->
-                    {error, badresponse}
+                    {error, unathorized}
             end;
         Badarg ->
             {error, {badarg, Badarg}}
@@ -144,7 +328,7 @@ check_r(Secret, Challenge, Packet) ->
                 true ->
                     ok;
                 false ->
-                    {error, badresponse}
+                    {error, unathorized}
             end;
         Badarg ->
             {error, {badarg, Badarg}}
@@ -179,6 +363,16 @@ do_compare_binaries([A|L1], [B|L2], Acc) ->
     do_compare_binaries(L1, L2, Acc bor (A bxor B));
 do_compare_binaries(_, _, Acc) ->
     Acc.
+
+insecure_fallback() ->
+    application:get_env(gen_rpc, insecure_auth_fallback, false).
+
+get_cookie() ->
+    atom_to_binary(erlang:get_cookie()).
+
+%%================================================================================
+%% Unit tests
+%%================================================================================
 
 -ifdef(TEST).
 

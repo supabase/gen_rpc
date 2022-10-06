@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
+%%% Copyright 2015, 2022 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 -module(gen_rpc_test_helper).
 -author("Panagiotis Papadomitsos <pj@ezgr.net>").
@@ -13,19 +13,20 @@
 
 %%% Public API
 -export([start_distribution/1,
-        start_master/1,
-        start_slave/1,
-        stop_slave/0,
-        set_driver_configuration/2,
-        set_application_environment/1,
-        store_driver_in_config/2,
-        get_driver_from_config/1,
-        get_test_functions/1,
-        spawn_long_running/1,
-        spawn_short_running/0,
-        stub_function/0,
-        ping/1,
-        test_call/1]).
+         start_master/1,
+         start_slave/1,
+         stop_slave/0,
+         set_driver_configuration/2,
+         set_application_environment/1,
+         store_driver_in_config/2,
+         get_driver_from_config/1,
+         get_test_functions/1,
+         spawn_long_running/1,
+         spawn_short_running/0,
+         stub_function/0,
+         ping/1,
+         test_call/1
+        ]).
 
 %%% ===================================================
 %%% Public API
@@ -52,6 +53,7 @@ start_master(Driver) ->
     ok.
 
 start_slave(Driver) ->
+    stop_slave(),
     %% Starting a slave node with Distributed Erlang
     SlaveStr = atom_to_list(?SLAVE),
     [NameStr, IpStr] = string:tokens(SlaveStr, [$@]),

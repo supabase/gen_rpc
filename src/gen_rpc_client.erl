@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
+%%% Copyright 2015, 2022 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
 %%% https://erlangcentral.org/wiki/index.php?title=Building_a_Non-blocking_TCP_server_using_OTP_principles
@@ -258,7 +258,7 @@ init({Node}) ->
             ?log(info, "event=initializing_client driver=~s node=\"~s\" port=~B", [Driver, Node, Port]),
             case DriverMod:connect(Node, Port) of
                 {ok, Socket} ->
-                    case DriverMod:authenticate_server(Socket) of
+                    case gen_rpc_auth:authenticate_server(DriverMod, Socket) of
                         ok ->
                             Interval = application:get_env(?APP, keepalive_interval, 60), % 60s
                             StatFun = fun() ->

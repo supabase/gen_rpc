@@ -12,8 +12,8 @@
 %%% Behaviour
 -behaviour(gen_rpc_driver).
 
-%%% Include the HUT library
 -include("logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 %%% Include this library's name macro
 -include("app.hrl").
 %%% Include TCP macros
@@ -28,8 +28,8 @@
         get_peer/1,
         send/2,
         activate_socket/1,
-        authenticate_server/1,
-        authenticate_client/3,
+        recv/3,
+        close/1,
         copy_sock_opts/2,
         set_controlling_process/2,
         set_send_timeout/2,
@@ -81,140 +81,13 @@ send(Socket, Data) when is_port(Socket), is_binary(Data) ->
             ok
     end.
 
--spec authenticate_server(port()) -> ok | {error, {badtcp | badrpc, term()}}.
-authenticate_server(Port) ->
-    case application:get_env(gen_rpc, insecure_authentication, false) of
-        false ->
-            authenticate_server_cr(Port);
-        true ->
-            authenticate_server_insecure(Port)
-    end.
+-spec recv(gen_tcp:socket(), non_neg_integer(), timeout()) -> {ok, binary()} | {error, _}.
+recv(Socket, Length, Timeout) ->
+    gen_tcp:recv(Socket, Length, Timeout).
 
--spec authenticate_server_cr(port()) -> ok | {error, {badtcp | badrpc, term()}}.
-authenticate_server_cr(Socket) ->
-    ok = set_send_timeout(Socket, SendTimeout),
-    SockName = gen_rpc_helper:socket_to_string(Socket),
-    {ClientChallenge, Packet} = gen_rpc_auth:stage1(),
-    case gen_tcp:send(Socket, Packet) of
-        {error, Reason} ->
-            ?tp(error, gen_rpc_authentication_connection_failed,
-                #{ socket => SockName
-                 , reason => Reason
-                 }),
-            ok = gen_tcp:close(Socket),
-            {error, {badtcp, Reason}};
-        ok ->
-            ?tp(debug, gen_rpc_authentication_stage1,
-                #{ socket    => SockName
-                 , challenge => ClientChallenge
-                 }),
-            case gen_tcp:recv(Socket, 0, RecvTimeout) of
-                {ok, RecvPacket} ->
-                    case gen_rpc_auth:stage3(ClientChallenge, RecvPacket) of
-                        {ok, Packet2} ->
-                            ?tp(debug, gen_rpc_authentication_stage3,
-                                #{ socket => SockName
-                                 }),
-                            gen_tcp:send(Socket, Packet2),
-                            ok;
-                        {error, Err} ->
-                            ?tp(error, gen_rpc_authentication_bad_cookie,
-                                #{ socket => SockName
-                                 , error  => Error
-                                 }),
-                            ok = gen_tcp:close(Socket),
-                            {error, {badrpc, Err}}
-                    end;
-                {error, Reason} ->
-                    ?tp(error, gen_rpc_authentication_stage3_badtcp,
-                        #{ socket => SockName
-                         , error  => Reason
-                         }),
-                    ok = gen_tcp:close(Socket),
-                    {error, {badtcp, Reason}}
-            end
-    end.
-
--spec authenticate_server_insecure(port()) -> ok | {error, {badtcp | badrpc, term()}}.
-authenticate_server_insecure(Socket) ->
-    Cookie = erlang:get_cookie(),
-    Packet = erlang:term_to_binary({gen_rpc_authenticate_connection, Cookie}),
-    SendTimeout = gen_rpc_helper:get_send_timeout(undefined),
-    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
-    ok = set_send_timeout(Socket, SendTimeout),
-    case gen_tcp:send(Socket, Packet) of
-        {error, Reason} ->
-            ?log(error, "event=authentication_connection_failed socket=\"~s\" reason=\"~p\"",
-                 [gen_rpc_helper:socket_to_string(Socket), Reason]),
-            ok = gen_tcp:close(Socket),
-            {error, {badtcp,Reason}};
-        ok ->
-            ?log(debug, "event=authentication_connection_succeeded socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
-            case gen_tcp:recv(Socket, 0, RecvTimeout) of
-                {ok, RecvPacket} ->
-                    case erlang:binary_to_term(RecvPacket) of
-                        gen_rpc_connection_authenticated ->
-                            ?log(debug, "event=connection_authenticated socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
-                            ok;
-                        {gen_rpc_connection_rejected, invalid_cookie} ->
-                            ?log(error, "event=authentication_rejected socket=\"~s\" reason=\"invalid_cookie\"",
-                                 [gen_rpc_helper:socket_to_string(Socket)]),
-                            ok = gen_tcp:close(Socket),
-                            {error, {badrpc,invalid_cookie}};
-                        _Else ->
-                            ?log(error, "event=authentication_reception_error socket=\"~s\" reason=\"invalid_payload\"",
-                                 [gen_rpc_helper:socket_to_string(Socket)]),
-                            ok = gen_tcp:close(Socket),
-                            {error, {badrpc,invalid_message}}
-                    end;
-                {error, Reason} ->
-                    ?log(error, "event=authentication_reception_failed socket=\"~s\" reason=\"~p\"",
-                         [gen_rpc_helper:socket_to_string(Socket), Reason]),
-                    ok = gen_tcp:close(Socket),
-                    {error, {badtcp,Reason}}
-            end
-    end.
-
-%% Authenticate a connected client
--spec authenticate_client(port(), tuple(), binary()) -> ok | {error, {badtcp | badrpc, term()}}.
-authenticate_client(Socket, Peer, Data) ->
-    Cookie = erlang:get_cookie(),
-    try erlang:binary_to_term(Data) of
-        {gen_rpc_authenticate_connection, Cookie} ->
-            Packet = erlang:term_to_binary(gen_rpc_connection_authenticated),
-            Result = case send(Socket, Packet) of
-                {error, Reason} ->
-                    ?log(error, "event=transmission_failed socket=\"~s\" peer=\"~s\" reason=\"~p\"",
-                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), Reason]),
-                    {error, {badtcp,Reason}};
-                ok ->
-                    ?log(debug, "event=transmission_succeeded socket=\"~s\" peer=\"~s\"",
-                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)]),
-                    ok = activate_socket(Socket),
-                    ok
-            end,
-            Result;
-        {gen_rpc_authenticate_connection, _IncorrectCookie} ->
-            ?log(error, "event=invalid_cookie_received socket=\"~s\" peer=\"~s\"",
-                 [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)]),
-            Packet = erlang:term_to_binary({gen_rpc_connection_rejected, invalid_cookie}),
-            ok = case send(Socket, Packet) of
-                {error, Reason} ->
-                    ?log(error, "event=transmission_failed socket=\"~s\" peer=\"~s\" reason=\"~p\"",
-                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), Reason]);
-                ok ->
-                    ?log(debug, "event=transmission_succeeded socket=\"~s\" peer=\"~s\"",
-                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)])
-            end,
-            {error, {badrpc,invalid_cookie}};
-        OtherData ->
-            ?log(debug, "event=erroneous_data_received socket=\"~s\" peer=\"~s\" data=\"~p\"",
-                 [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), OtherData]),
-            {error, {badrpc,erroneous_data}}
-    catch
-        error:badarg ->
-            {error, {badtcp,corrupt_data}}
-    end.
+-spec close(gen_tcp:socket()) -> ok | {error, _}.
+close(Socket) ->
+    gen_tcp:close(Socket).
 
 %% Taken from prim_inet.  We are merely copying some socket options from the
 %% listening socket to the new acceptor socket.
@@ -280,3 +153,6 @@ set_socket_keepalive({unix, linux}, Socket) ->
 
 set_socket_keepalive(_Unsupported, _Socket) ->
     ok.
+
+insecure_fallback() ->
+    application:get_env(gen_rpc, insecure_auth_fallback, false).

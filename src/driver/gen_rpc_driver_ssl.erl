@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
+%%% Copyright 2015, 2022 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
 %%% https://erlangcentral.org/wiki/index.php?title=Building_a_Non-blocking_TCP_server_using_OTP_principles
@@ -25,18 +25,20 @@
 
 %%% Public API
 -export([connect/2,
-        listen/1,
-        accept/1,
-        get_peer/1,
-        send/2,
-        activate_socket/1,
-        authenticate_server/1,
-        authenticate_client/3,
-        copy_sock_opts/2,
-        set_controlling_process/2,
-        set_send_timeout/2,
-        set_acceptor_opts/1,
-        getstat/2]).
+         listen/1,
+         accept/1,
+         get_peer/1,
+         send/2,
+         activate_socket/1,
+         recv/3,
+         close/1,
+         authenticate_server/1,
+         authenticate_client/3,
+         copy_sock_opts/2,
+         set_controlling_process/2,
+         set_send_timeout/2,
+         set_acceptor_opts/1,
+         getstat/2]).
 
 %%% ===================================================
 %%% Public API
@@ -97,6 +99,14 @@ send(Socket, Data) when is_tuple(Socket), is_binary(Data) ->
 -spec activate_socket(ssl:sslsocket()) -> ok | {error, inet:posix()}.
 activate_socket(Socket) when is_tuple(Socket) ->
     ssl:setopts(Socket, [{active, true}]).
+
+-spec recv(ssl:sslsocket(), non_neg_integer(), timeout()) -> {ok, binary()} | {error, _}.
+recv(Socket, Length, Timeout) ->
+    ssl:recv(Socket, Length, Timeout).
+
+-spec close(ssl:sslsocket()) -> ok | {error, _}.
+close(Socket) ->
+    ssl:close(Socket).
 
 %% Authenticate to a server
 -spec authenticate_server(ssl:sslsocket()) -> ok | {error, {badtcp | badrpc, term()}}.

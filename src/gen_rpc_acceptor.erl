@@ -233,6 +233,7 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 wait_for_auth(#state{socket=Socket, driver=Driver, driver_mod=DriverMod, peer=Peer} = State) ->
     case gen_rpc_auth:authenticate_client(DriverMod, Socket, Peer) of
         {error, Reason} ->
+            ok = DriverMod:close(Socket),
             {stop, Reason, State};
         ok ->
             case DriverMod:activate_socket(Socket) of

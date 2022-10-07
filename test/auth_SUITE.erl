@@ -13,8 +13,6 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-%%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
-%%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 
 -module(auth_SUITE).
 
@@ -98,17 +96,63 @@ t_challenge_response_ok(Config) ->
                ?assertMatch([1, 2, 3, 4], ?projection(stage, Stages))
        end).
 
+%% In this testcase we don't test auth, but the rest of the gen_rpc library.
+%%
+%% We mock authentication to always fail and verify that it prevents access.
+t_auth_server_fail(Config) ->
+    Driver = gen_rpc_test_helper:get_driver_from_config(Config),
+    ?check_trace(
+       #{timetrap => 5000},
+       begin
+           meck:new(gen_rpc_auth, [passthrough]),
+           meck:expect(gen_rpc_auth, authenticate_server,
+                       fun(_Driver, _Socket) ->
+                               {error, {badrpc, unauthorized}}
+                       end),
+           ok = gen_rpc_test_helper:start_master(Driver),
+           ok = gen_rpc_test_helper:start_slave(Driver),
+           ?assertMatch({badrpc, unauthorized}, gen_rpc:call(?SLAVE, ?MODULE, canary, []))
+       end,
+       [ fun ?MODULE:prop_canary/1
+       ]).
+
+%% In this testcase we don't test auth, but the rest of the gen_rpc library.
+%%
+%% We mock authentication to always fail and verify that it prevents access.
+t_auth_client_fail(Config) ->
+    Driver = gen_rpc_test_helper:get_driver_from_config(Config),
+    ?check_trace(
+       #{timetrap => 5000},
+       begin
+           meck:new(gen_rpc_auth, [passthrough]),
+           meck:expect(gen_rpc_auth, authenticate_client,
+                       fun(_Driver, _Socket, _Peer) ->
+                               {error, {badrpc, unauthorized}}
+                       end),
+           ok = gen_rpc_test_helper:start_master(Driver),
+           ok = gen_rpc_test_helper:start_slave(Driver),
+           Node = node(),
+           ?assertNotMatch(canary_is_dead,
+                           erpc:call(?SLAVE,
+                                     fun() ->
+                                             gen_rpc:call(Node, ?MODULE, canary, [])
+                                     end))
+       end,
+       [ fun ?MODULE:prop_canary/1
+       ]).
+
 %% The client has invalid cookie:
 t_challenge_response_invalid_cookie_client(Config) ->
     Driver = gen_rpc_test_helper:get_driver_from_config(Config),
     ?check_trace(
        #{timetrap => 5000},
-       begin
-           ok = meck:new(gen_rpc_auth, [passthrough]),
-           ok = meck:expect(gen_rpc_auth, get_cookie, fun() -> <<"wrong">> end),
+       try
+           application:set_env(?APP, secret_cookie, <<"wrong">>),
            ok = gen_rpc_test_helper:start_master(Driver),
            ok = gen_rpc_test_helper:start_slave(Driver),
-           ?assertMatch({badrpc, unathorized}, gen_rpc:call(?SLAVE, ?MODULE, canary, []))
+           ?assertMatch({badrpc, unauthorized}, gen_rpc:call(?SLAVE, ?MODULE, canary, []))
+       after
+           application:unset_env(?APP, secret_cookie)
        end,
        [ fun ?MODULE:prop_canary/1
        , fun ?MODULE:prop_no_fallback/1
@@ -120,15 +164,14 @@ t_challenge_response_invalid_cookie_server(Config) ->
     ?check_trace(
        #{timetrap => 5000},
        begin
-           ok = meck:new(gen_rpc_auth, [passthrough]),
-           ok = meck:expect(gen_rpc_auth, get_cookie, fun() -> error(1) end),
            ok = gen_rpc_test_helper:start_master(Driver),
            ok = gen_rpc_test_helper:start_slave(Driver),
-           ?assertMatch({badrpc, unathorized},
-                        erpc:call(?SLAVE,
-                                  fun() ->
-                                          gen_rpc:call(?SLAVE, ?MODULE, canary, [])
-                                  end))
+           erpc:call(?SLAVE,
+                     fun() ->
+                             application:set_env(?APP, secret_cookie, <<"wrong">>)
+                     end),
+           ?assertMatch({badrpc, unauthorized},
+                        gen_rpc:call(?SLAVE, ?MODULE, canary, []))
        end,
        [ fun ?MODULE:prop_canary/1
        , fun ?MODULE:prop_no_fallback/1
@@ -139,7 +182,8 @@ t_challenge_response_invalid_cookie_server(Config) ->
 %%% ===================================================
 
 canary() ->
-    ?tp(gen_rpc_canary, #{}).
+    ?tp(gen_rpc_canary, #{}),
+    canary_is_dead.
 
 prop_canary(Trace) ->
     ?assertMatch([], ?of_kind(gen_rpc_canary, Trace)).

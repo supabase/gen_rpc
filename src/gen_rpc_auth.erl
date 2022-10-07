@@ -93,59 +93,63 @@ authenticate_client(Driver, Socket, Peer) ->
 -spec authenticate_server_cr(module(), port()) -> ok | {error, {badtcp | badrpc, term()}}.
 authenticate_server_cr(Driver, Socket) ->
     Peer = Driver:get_peer(Socket),
-    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
-    {ClientChallenge, Packet} = stage1(),
-    case Driver:send(Socket, Packet) of
-        {error, Reason} ->
-            ?tp(error, gen_rpc_authentication_connection_failed, #{socket => Socket, peer => Peer, reason => Reason}),
-            ok = Driver:close(Socket),
-            {error, {badtcp, Reason}};
-        ok ->
-            ?tp(debug, gen_rpc_authentication_stage, #{stage => 1, socket => Socket, peer => Peer, challenge => ClientChallenge}),
-            case Driver:recv(Socket, 0, RecvTimeout) of
-                {ok, RecvPacket} ->
-                    Result3 = stage3(ClientChallenge, RecvPacket),
-                    ?tp(debug, gen_rpc_authentication_stage, #{stage => 3, socket => Socket, peer => Peer, result => Result3}),
-                    case Result3 of
-                        {ok, Packet2} ->
-                            Driver:send(Socket, Packet2);
-                        {error, Error} ->
-                            ?tp(error, gen_rpc_authentication_bad_cookie, #{socket => Socket, error => Error, peer => Peer}),
-                            ok = Driver:close(Socket),
-                            {error, {badrpc, Error}}
-                    end;
-                {error, Reason} ->
-                    ?tp(error, gen_rpc_authentication_stage3_badtcp, #{socket => Socket, error => Reason, peer => Peer}),
-                    ok = Driver:close(Socket),
-                    {error, {badtcp, Reason}}
-            end
+    try
+        %% Send challenge:
+        {ClientChallenge, Packet} = stage1(),
+        ?tp(debug, gen_rpc_authentication_stage, #{stage => 1, socket => Socket, peer => Peer}),
+        send(Driver, Socket, Packet, challenge),
+        %% Receive response to our challenge and a new challenge:
+        RecvPacket = recv(Driver, Socket, challenge_response),
+        Result = stage3(ClientChallenge, RecvPacket),
+        ?tp(debug, gen_rpc_authentication_stage, #{stage => 3, socket => Socket, peer => Peer, result => Result}),
+        case Result of
+            {ok, Packet2} ->
+                %% Send the final response to the client:
+                send(Driver, Socket, Packet2, response);
+            {error, Error} ->
+                ?tp(error, gen_rpc_authentication_bad_cookie, #{socket => Socket, error => Error, peer => Peer}),
+                ok = Driver:close(Socket),
+                {error, {badrpc, Error}}
+        end
+    catch
+        {badtcp, Action, Meta, Reason} ->
+            Driver:close(Socket),
+            ?tp(error, gen_rpc_authentication_badtcp,
+                #{ packet => Meta
+                 , reason => Reason
+                 , peer => Peer
+                 , socket => Socket
+                 , action => Action
+                 }),
+            {error, {badtcp, Reason}}
     end.
 
 -spec authenticate_client_cr(module(), port(), binary()) -> ok | {error, {badtcp | badrpc, term()}}.
 authenticate_client_cr(Driver, Socket, Data) ->
     Peer = Driver:get_peer(Socket),
-    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
     Result2 = stage2(Data),
     ?tp(debug, gen_rpc_authentication_stage, #{stage => 2, socket => Socket, peer => Peer, result => Result2}),
-    case Result2 of
-        {ok, {ServerChallenge, Packet}} ->
-            case Driver:send(Socket, Packet) of
-                ok ->
-                    case Driver:recv(Socket, 0, RecvTimeout) of
-                        {ok, RecvPacket} ->
-                            Result = stage4(ServerChallenge, RecvPacket),
-                            ?tp(debug, gen_rpc_authentication_stage, #{stage => 4, socket => Socket, peer => Peer, result => Result}),
-                            Result;
-                        {error, Reason} ->
-                            ?tp(error, gen_rpc_authentication_stage4_timeout, #{socket => Socket, reason => Reason, peer => Peer}),
-                            {error, {badrpc, Reason}}
-                    end;
-                {error, Reason} ->
-                    ?tp(error, gen_rpc_authentication_stage4_badtcp, #{socket => Socket, reason => Reason, peer => Peer}),
-                    {error, {badtcp, Reason}}
-            end;
-        Error ->
-            Error
+    try
+        case Result2 of
+            {ok, {ServerChallenge, Packet}} ->
+                send(Driver, Socket, Packet, challenge_response),
+                RecvPacket = recv(Driver, Socket, response),
+                Result = stage4(ServerChallenge, RecvPacket),
+                ?tp(debug, gen_rpc_authentication_stage, #{stage => 4, socket => Socket, peer => Peer, result => Result}),
+                Result;
+            Error ->
+                Error
+        end
+    catch
+        {badtcp, Action, Meta, Reason} ->
+            ?tp(error, gen_rpc_authentication_badtcp,
+                #{ packet => Meta
+                 , reason => Reason
+                 , peer => Peer
+                 , socket => Socket
+                 , action => Action
+                 }),
+            {error, {badtcp, Reason}}
     end.
 
 %%================================================================================
@@ -232,6 +236,28 @@ authenticate_client_insecure(Driver, Socket, Peer, Data) ->
             {error, {badtcp,corrupt_data}}
     end.
 
+
+%%================================================================================
+%% Wrapper functions for network (throwing)
+%%================================================================================
+
+recv(Driver, Socket, Meta) ->
+    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
+    case Driver:recv(Socket, 0, RecvTimeout) of
+        {ok, Packet} ->
+            Packet;
+        {error, Reason} ->
+            throw({badtcp, recv, Meta, Reason})
+    end.
+
+send(Driver, Socket, Packet, Meta) ->
+    case Driver:send(Socket, Packet) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            throw({badtcp, send, Meta, Reason})
+    end.
+
 %%================================================================================
 %% Challenge-response stages (pure functions)
 %%================================================================================
@@ -242,15 +268,15 @@ stage1() ->
 
 -spec stage2(packet()) -> {ok, {challenge(), packet()}} | {error, _}.
 stage2(Packet) ->
-    stage2(?MODULE:get_cookie(), Packet).
+    stage2(get_cookie(), Packet).
 
 -spec stage3(challenge(), packet()) -> {ok, packet()} | {error, _}.
 stage3(MyChallenge, Packet) ->
-    stage3(?MODULE:get_cookie(), MyChallenge, Packet).
+    stage3(get_cookie(), MyChallenge, Packet).
 
 -spec stage4(challenge(), packet()) -> ok | {error, _}.
 stage4(MyChallenge, Packet) ->
-    stage4(?MODULE:get_cookie(), MyChallenge, Packet).
+    stage4(get_cookie(), MyChallenge, Packet).
 
 -spec stage2(secret(), packet()) -> {ok, {challenge(), packet()}} | {error, _}.
 stage2(Secret, Packet) ->
@@ -304,7 +330,7 @@ check_cr(Secret, MyChallenge, Packet) ->
                 true ->
                     {ok, NewChallenge};
                 false ->
-                    {error, unathorized}
+                    {error, unauthorized}
             end;
         Badarg ->
             {error, {badarg, Badarg}}
@@ -328,7 +354,7 @@ check_r(Secret, Challenge, Packet) ->
                 true ->
                     ok;
                 false ->
-                    {error, unathorized}
+                    {error, unauthorized}
             end;
         Badarg ->
             {error, {badarg, Badarg}}
@@ -368,7 +394,12 @@ insecure_fallback() ->
     application:get_env(gen_rpc, insecure_auth_fallback, false).
 
 get_cookie() ->
-    atom_to_binary(erlang:get_cookie()).
+    case application:get_env(gen_rpc, secret_cookie) of
+        {ok, Cookie} ->
+            Cookie;
+        undefined ->
+            atom_to_binary(erlang:get_cookie(), latin1)
+    end.
 
 %%================================================================================
 %% Unit tests

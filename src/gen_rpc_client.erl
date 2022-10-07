@@ -93,33 +93,16 @@ call(NodeOrTuple, M, F, A, RecvTimeout) ->
 call(NodeOrTuple, M, F, A, RecvTimeout, SendTimeout) when ?is_node_or_tuple(NodeOrTuple), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A),
                                          RecvTimeout =:= undefined orelse ?is_timeout(RecvTimeout),
                                          SendTimeout =:= undefined orelse ?is_timeout(SendTimeout) ->
-    %% Create a unique name for the client because we register as such
-    PidName = ?NAME(NodeOrTuple),
-    case gen_rpc_registry:whereis_name(PidName) of
-        undefined ->
-            ?log(info, "event=client_process_not_found target=\"~p\" action=spawning_client", [NodeOrTuple]),
-            case gen_rpc_dispatcher:start_client(NodeOrTuple) of
-                {ok, NewPid} ->
-                    %% We take care of CALL inside the gen_server
-                    %% This is not resilient enough if the caller's mailbox is full
-                    %% but it's good enough for now
-                    try
-                        gen_server:call(NewPid, {{call,M,F,A}, SendTimeout}, gen_rpc_helper:get_call_receive_timeout(RecvTimeout))
-                    catch
-                        exit:{timeout,_Reason} -> {badrpc,timeout};
-                        exit:OtherReason -> {badrpc, {unknown_error, OtherReason}}
-                    end;
-                {error, Reason} ->
-                    Reason
-            end;
-        Pid ->
-            ?log(debug, "event=client_process_found pid=\"~p\" target=\"~p\"", [Pid, NodeOrTuple]),
+    case maybe_start_client(NodeOrTuple) of
+        {ok, Pid} ->
             try
                 gen_server:call(Pid, {{call,M,F,A}, SendTimeout}, gen_rpc_helper:get_call_receive_timeout(RecvTimeout))
             catch
                 exit:{timeout,_Reason} -> {badrpc,timeout};
                 exit:OtherReason -> {badrpc, {unknown_error, OtherReason}}
-            end
+            end;
+        {error, Reason} ->
+            Reason
     end.
 
 %% Simple server cast with no args and default timeout values
@@ -587,4 +570,16 @@ drain_cast(N, CastReqs) ->
             drain_cast(N-1, [Req | CastReqs])
     after 0 ->
         lists:reverse(CastReqs)
+    end.
+
+-spec maybe_start_client(node_or_tuple()) -> {ok, pid()} | {error, any()}.
+maybe_start_client(NodeOrTuple) ->
+    %% Create a unique name for the client because we register as such
+    PidName = ?NAME(NodeOrTuple),
+    case gen_rpc_registry:whereis_name(PidName) of
+        undefined ->
+            ?log(info, "event=client_process_not_found target=\"~p\" action=spawning_client", [NodeOrTuple]),
+            gen_rpc_dispatcher:start_client(NodeOrTuple);
+        Pid ->
+            {ok, Pid}
     end.

@@ -153,6 +153,3 @@ set_socket_keepalive({unix, linux}, Socket) ->
 
 set_socket_keepalive(_Unsupported, _Socket) ->
     ok.
-
-insecure_fallback() ->
-    application:get_env(gen_rpc, insecure_auth_fallback, false).

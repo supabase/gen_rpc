@@ -266,13 +266,14 @@ init({Node}) ->
                                     {stop, Error}
                             end;
                         {error, ReasonTuple} ->
+                            DriverMod:close(Socket),
                             ?log(error, "event=client_authentication_failed driver=~s reason=\"~p\"", [Driver, ReasonTuple]),
                             {stop, ReasonTuple}
                     end;
-                {error, {_Class,Reason}} ->
+                {error, {_Class, Reason}} ->
                     %% This should be badtcp but to conform with
                     %% the RPC library we return badrpc
-                    {stop, {badrpc,Reason}}
+                    {stop, {badrpc, Reason}}
             end
     end.
 

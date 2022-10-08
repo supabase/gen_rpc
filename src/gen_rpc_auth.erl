@@ -108,12 +108,10 @@ authenticate_server_cr(Driver, Socket) ->
                 send(Driver, Socket, Packet2, response);
             {error, Error} ->
                 ?tp(error, gen_rpc_authentication_bad_cookie, #{socket => Socket, error => Error, peer => Peer}),
-                ok = Driver:close(Socket),
                 {error, {badrpc, Error}}
         end
     catch
         {badtcp, Action, Meta, Reason} ->
-            Driver:close(Socket),
             ?tp(error, gen_rpc_authentication_badtcp,
                 #{ packet => Meta
                  , reason => Reason
@@ -156,86 +154,94 @@ authenticate_client_cr(Driver, Socket, Data) ->
 %% Insecure fallback
 %%================================================================================
 
--spec authenticate_server_insecure(module(), port()) -> ok | {error, {badtcp | badrpc, term()}}.
+-spec authenticate_server_insecure(module(), term()) -> ok | {error, {badtcp | badrpc, term()}}.
 authenticate_server_insecure(Driver, Socket) ->
-    Cookie = erlang:get_cookie(),
-    Packet = erlang:term_to_binary({gen_rpc_authenticate_connection, Cookie}),
-    SendTimeout = gen_rpc_helper:get_send_timeout(undefined),
-    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
-    ok = Driver:set_send_timeout(Socket, SendTimeout),
-    case Driver:send(Socket, Packet) of
-        {error, Reason} ->
-            ?log(error, "event=authentication_connection_failed socket=\"~s\" reason=\"~p\"",
-                 [gen_rpc_helper:socket_to_string(Socket), Reason]),
-            ok = Driver:close(Socket),
-            {error, {badtcp,Reason}};
-        ok ->
-            ?log(debug, "event=authentication_connection_succeeded socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
-            case Driver:recv(Socket, 0, RecvTimeout) of
-                {ok, RecvPacket} ->
-                    case erlang:binary_to_term(RecvPacket) of
-                        gen_rpc_connection_authenticated ->
-                            ?log(debug, "event=connection_authenticated socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
-                            ok;
-                        {gen_rpc_connection_rejected, invalid_cookie} ->
-                            ?log(error, "event=authentication_rejected socket=\"~s\" reason=\"invalid_cookie\"",
-                                 [gen_rpc_helper:socket_to_string(Socket)]),
-                            ok = Driver:close(Socket),
-                            {error, {badrpc,invalid_cookie}};
-                        _Else ->
-                            ?log(error, "event=authentication_reception_error socket=\"~s\" reason=\"invalid_payload\"",
-                                 [gen_rpc_helper:socket_to_string(Socket)]),
-                            ok = Driver:close(Socket),
-                            {error, {badrpc,invalid_message}}
-                    end;
-                {error, Reason} ->
-                    ?log(error, "event=authentication_reception_failed socket=\"~s\" reason=\"~p\"",
-                         [gen_rpc_helper:socket_to_string(Socket), Reason]),
-                    ok = Driver:close(Socket),
-                    {error, {badtcp,Reason}}
-            end
+    Peer = Driver:get_peer(Socket),
+    try
+        %% Send cookie to the remote server:
+        Cookie = erlang:get_cookie(),
+        Packet = erlang:term_to_binary({gen_rpc_authenticate_connection, Cookie}),
+        send(Driver, Socket, Packet, insecure_cookie),
+        %% Wait for the reply:
+        RecvPacket = recv(Driver, Socket, insecure_response),
+        try erlang:binary_to_term(RecvPacket) of
+            gen_rpc_connection_authenticated ->
+                ?log(debug, "event=connection_authenticated socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
+                ok;
+            {gen_rpc_connection_rejected, invalid_cookie} ->
+                ?log(error, "event=authentication_rejected socket=\"~s\" reason=\"invalid_cookie\"",
+                     [gen_rpc_helper:socket_to_string(Socket)]),
+                {error, {badrpc,invalid_cookie}};
+            _Else ->
+                ?log(error, "event=authentication_reception_error socket=\"~s\" reason=\"invalid_payload\"",
+                     [gen_rpc_helper:socket_to_string(Socket)]),
+                {error, {badrpc,invalid_message}}
+        catch
+            error:badarg ->
+                {error, {badtcp,corrupt_data}}
+        end
+    catch
+        {badtcp, Action, Meta, Reason} ->
+            ?tp(error, gen_rpc_server_auth_fallback_badtcp,
+                #{ packet => Meta
+                 , reason => Reason
+                 , peer => Peer
+                 , socket => Socket
+                 , action => Action
+                 }),
+            {error, {badtcp, Reason}}
     end.
 
 -spec authenticate_client_insecure(module(), port(), tuple(), binary()) -> ok | {error, {badtcp | badrpc, term()}}.
 authenticate_client_insecure(Driver, Socket, Peer, Data) ->
     Cookie = erlang:get_cookie(),
-    try erlang:binary_to_term(Data) of
-        {gen_rpc_authenticate_connection, Cookie} ->
-            Packet = erlang:term_to_binary(gen_rpc_connection_authenticated),
-            Result = case Driver:send(Socket, Packet) of
-                {error, Reason} ->
-                    ?log(error, "event=transmission_failed socket=\"~s\" peer=\"~s\" reason=\"~p\"",
-                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), Reason]),
-                    {error, {badtcp,Reason}};
-                ok ->
-                    ?log(debug, "event=transmission_succeeded socket=\"~s\" peer=\"~s\"",
-                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)]),
-                    ok = Driver:activate_socket(Socket),
-                    ok
-            end,
-            Result;
-        {gen_rpc_authenticate_connection, _IncorrectCookie} ->
-            ?log(error, "event=invalid_cookie_received socket=\"~s\" peer=\"~s\"",
-                 [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)]),
-            Packet = erlang:term_to_binary({gen_rpc_connection_rejected, invalid_cookie}),
-            ok = case Driver:send(Socket, Packet) of
-                {error, Reason} ->
-                    ?log(error, "event=transmission_failed socket=\"~s\" peer=\"~s\" reason=\"~p\"",
-                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), Reason]);
-                ok ->
-                    ?log(debug, "event=transmission_succeeded socket=\"~s\" peer=\"~s\"",
-                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)])
-            end,
-            {error, {badrpc,invalid_cookie}};
-        OtherData ->
-            ?log(debug, "event=erroneous_data_received socket=\"~s\" peer=\"~s\" data=\"~p\"",
-                 [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), OtherData]),
-            {error, {badrpc,erroneous_data}}
+    CheckResult =
+        try erlang:binary_to_term(Data) of
+            {gen_rpc_authenticate_connection, Cookie} ->
+                ok;
+            {gen_rpc_authenticate_connection, _Node, Cookie} ->
+                %% Old authentication packet sent by SSL driver
+                ok;
+            {gen_rpc_authenticate_connection, _InvalidCookie} ->
+                invalid_cookie;
+            {gen_rpc_authenticate_connection, _Node, _InvalidCookie} ->
+                %% Old authentication packet sent by SSL driver
+                invalid_cookie;
+            _ ->
+                erroneous_data
+        catch
+            error:badarg ->
+                corrupt_data
+        end,
+    LogLevel = case CheckResult of
+                   ok -> debug;
+                   _  -> error
+               end,
+    ?tp(LogLevel, gen_rpc_client_auth_fallback, #{peer => Peer, socket => Socket, result => CheckResult}),
+    try
+        case CheckResult of
+            ok ->
+                Packet = erlang:term_to_binary(gen_rpc_connection_authenticated),
+                send(Driver, Socket, Packet, reply),
+                ok;
+            invalid_cookie ->
+                Packet = erlang:term_to_binary({gen_rpc_connection_rejected, invalid_cookie}),
+                send(Driver, Socket, Packet, reply),
+                {error, {badrpc,invalid_cookie}};
+            Err ->
+                {error, Err}
+        end
     catch
-        error:badarg ->
-            {error, {badtcp,corrupt_data}}
+        {badtcp, Action, Meta, Reason} ->
+            ?tp(error, gen_rpc_client_auth_fallback_badtcp,
+                #{ packet => Meta
+                 , reason => Reason
+                 , peer => Peer
+                 , socket => Socket
+                 , action => Action
+                 }),
+            {error, {badtcp, Reason}}
     end.
-
 
 %%================================================================================
 %% Wrapper functions for network (throwing)
@@ -274,7 +280,7 @@ stage2(Packet) ->
 stage3(MyChallenge, Packet) ->
     stage3(get_cookie(), MyChallenge, Packet).
 
--spec stage4(challenge(), packet()) -> ok | {error, _}.
+-spec stage4(challenge(), packet()) -> ok | {error, badpacket | {badarg, _} | unauthorized}.
 stage4(MyChallenge, Packet) ->
     stage4(get_cookie(), MyChallenge, Packet).
 
@@ -299,7 +305,7 @@ stage3(Secret, MyChallenge, Packet) ->
             Err
     end.
 
--spec stage4(secret(), challenge(), packet()) -> ok | {error, _}.
+-spec stage4(secret(), challenge(), packet()) -> ok | {error, badpacket | {badarg, _} | unauthorized}.
 stage4(Secret, MyChallenge, Packet) ->
     check_r(Secret, MyChallenge, Packet).
 
@@ -346,7 +352,7 @@ make_r(Secret, Challenge) ->
              },
     erlang:term_to_binary(Term).
 
--spec check_r(binary(), binary(), binary()) -> ok | {error, _}.
+-spec check_r(binary(), binary(), binary()) -> ok | {error, badpacket | {badarg, _} | unauthorized}.
 check_r(Secret, Challenge, Packet) ->
     try erlang:binary_to_term(Packet, [safe]) of
         #gen_rpc_authenticate_r{response = Response} ->

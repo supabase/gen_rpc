@@ -82,7 +82,7 @@ init({Driver, Peer}) ->
 callback_mode() ->
     state_functions.
 
-waiting_for_socket({call,From}, {socket_ready,Socket}, #state{driver=Driver, driver_mod=DriverMod, peer=Peer} = State) ->
+waiting_for_socket({call,From}, {socket_ready,Socket}, #state{driver_mod=DriverMod} = State) ->
     ok = DriverMod:set_acceptor_opts(Socket),
     % Now we own the socket
     ?tp(gen_rpc_acquiring_socket_ownership,

@@ -1,7 +1,8 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright 2015, 2022 Panagiotis Papadomitsos. All Rights Reserved.
+%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
 %%% https://erlangcentral.org/wiki/index.php?title=Building_a_Non-blocking_TCP_server_using_OTP_principles

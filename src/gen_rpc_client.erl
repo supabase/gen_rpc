@@ -239,38 +239,34 @@ init({Node}) ->
         {Driver, Port} ->
             {DriverMod, DriverClosed, DriverError} = gen_rpc_helper:get_client_driver_options(Driver),
             ?log(info, "event=initializing_client driver=~s node=\"~s\" port=~B", [Driver, Node, Port]),
-            case DriverMod:connect(Node, Port) of
+            case gen_rpc_auth:connect_with_auth(DriverMod, Node, Port) of
                 {ok, Socket} ->
-                    case gen_rpc_auth:authenticate_server(DriverMod, Socket) of
-                        ok ->
-                            Interval = application:get_env(?APP, keepalive_interval, 60), % 60s
-                            StatFun = fun() ->
-                                        case DriverMod:getstat(Socket, [recv_oct]) of
-                                            {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
-                                            {error, Error}              -> {error, Error}
-                                        end
-                                      end,
-                            case gen_rpc_keepalive:start(StatFun, Interval, {keepalive, check}) of
-                                {ok, KeepAlive} ->
-                                    MaxBatchSize = application:get_env(?APP, max_batch_size, 0),
-                                    {ok, #state{socket=Socket,
-                                                driver=Driver,
-                                                driver_mod=DriverMod,
-                                                driver_closed=DriverClosed,
-                                                driver_error=DriverError,
-                                                max_batch_size=MaxBatchSize,
-                                                keepalive=KeepAlive},
-                                    gen_rpc_helper:get_inactivity_timeout(?MODULE)};
-                                {error, Error} ->
-                                    ?log(error, "event=start_keepalive_failed driver=~p, reason=\"~p\"", [Driver, Error]),
-                                    {stop, Error}
-                            end;
-                        {error, ReasonTuple} ->
-                            DriverMod:close(Socket),
-                            ?log(error, "event=client_authentication_failed driver=~s reason=\"~p\"", [Driver, ReasonTuple]),
-                            {stop, ReasonTuple}
+                    Interval = application:get_env(?APP, keepalive_interval, 60), % 60s
+                    StatFun = fun() ->
+                                      case DriverMod:getstat(Socket, [recv_oct]) of
+                                          {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
+                                          {error, Error}              -> {error, Error}
+                                      end
+                              end,
+                    case gen_rpc_keepalive:start(StatFun, Interval, {keepalive, check}) of
+                        {ok, KeepAlive} ->
+                            MaxBatchSize = application:get_env(?APP, max_batch_size, 0),
+                            {ok, #state{socket=Socket,
+                                        driver=Driver,
+                                        driver_mod=DriverMod,
+                                        driver_closed=DriverClosed,
+                                        driver_error=DriverError,
+                                        max_batch_size=MaxBatchSize,
+                                        keepalive=KeepAlive},
+                             gen_rpc_helper:get_inactivity_timeout(?MODULE)};
+                        {error, Error} ->
+                            ?log(error, "event=start_keepalive_failed driver=~p, reason=\"~p\"", [Driver, Error]),
+                            {stop, Error}
                     end;
-                {error, {_Class, Reason}} ->
+                {error, ReasonTuple} ->
+                    ?log(error, "event=client_authentication_failed driver=~s reason=\"~p\"", [Driver, ReasonTuple]),
+                    {stop, ReasonTuple};
+                {unreachable, Reason} ->
                     %% This should be badtcp but to conform with
                     %% the RPC library we return badrpc
                     {stop, {badrpc, Reason}}

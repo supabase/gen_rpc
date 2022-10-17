@@ -14,6 +14,7 @@
 %%% Public API
 -export([start_distribution/1,
          start_master/1,
+         start_slave/2,
          start_slave/1,
          stop_slave/0,
          set_driver_configuration/2,
@@ -53,13 +54,16 @@ start_master(Driver) ->
     ok.
 
 start_slave(Driver) ->
+    start_slave(Driver, code:get_path()).
+
+start_slave(Driver, Paths) ->
     stop_slave(),
     %% Starting a slave node with Distributed Erlang
     SlaveStr = atom_to_list(?SLAVE),
     [NameStr, IpStr] = string:tokens(SlaveStr, [$@]),
     Name = list_to_atom(NameStr),
     {ok, _Slave} = slave:start(IpStr, Name),
-    ok = rpc:call(?SLAVE, code, add_pathsz, [code:get_path()]),
+    ok = rpc:call(?SLAVE, code, add_pathsz, [Paths]),
     ok = set_application_environment(?SLAVE),
     ok = set_driver_configuration(Driver, ?SLAVE),
     %% Start the application remotely

@@ -41,6 +41,25 @@ groups() ->
                   end],
     [{tcp, [], Cases}, {ssl, [], Cases}].
 
+init_per_suite(Config) ->
+    DataDir = proplists:get_value(data_dir, Config),
+    Ret = os:cmd("mkdir -p '" ++ DataDir ++ "' &&
+                  cd '" ++ DataDir ++ "' &&
+                  git clone https://github.com/emqx/gen_rpc.git || true &&
+                  cd gen_rpc &&
+                  git checkout '2.8.2' &&
+                  rebar3 compile &&
+                  echo 'DONE'"),
+    case lists:suffix("DONE\n", Ret) of
+        true ->
+            ok;
+        false ->
+            erlang:display(Ret),
+            error(compilation_failed)
+    end,
+    OldRelDir = filename:join(DataDir, "gen_rpc/_build/test/lib/gen_rpc/ebin"),
+    [{old_rel_dir, OldRelDir} | Config].
+
 init_per_group(Group, Config) ->
     % Our group name is the name of the driver
     Driver = Group,
@@ -52,16 +71,10 @@ init_per_group(Group, Config) ->
 end_per_group(_Driver, _Config) ->
     ok.
 
-init_per_testcase(external_client_config_source, Config) ->
-    PrevEnv = application:get_all_env(?APP),
-    %% No need to restore original setting with an
-    %% end_per_testcase since this setting gets overwritten
-    %% upon every application restart
-    ok = application:set_env(?APP, client_config_per_node, {external, ?MODULE}),
-    [{prev_env, PrevEnv}|Config];
 init_per_testcase(Testcase, Config) ->
     snabbkaffe:fix_ct_logging(),
     logger:notice("Running ~p", [Testcase]),
+    application:load(?APP),
     PrevEnv = application:get_all_env(?APP),
     %% Save environment variables, so they can be restored later:
     [{prev_env, PrevEnv}|Config].
@@ -69,11 +82,16 @@ init_per_testcase(Testcase, Config) ->
 end_per_testcase(_Testcase, Config) ->
     %% Restore environment variables:
     ok = gen_rpc_test_helper:stop_slave(),
-    ok = application:stop(gen_rpc),
-    OldEnv = proplists:get_value(prev_env, Config),
+    ok = application:stop(?APP),
     snabbkaffe:stop(),
     meck:unload(),
-    lists:foreach(fun({K, V}) -> application:set_env(?APP, K, V) end, OldEnv).
+    %% Reset application env:
+    OldEnv = proplists:get_value(prev_env, Config),
+    lists:foreach(fun({K, V}) -> application:set_env(?APP, K, V) end, OldEnv),
+    NewKeys = proplists:get_keys(application:get_all_env(?APP)) --
+         proplists:get_keys(OldEnv),
+    lists:foreach(fun(K) -> application:unset_env(?APP, K) end, NewKeys),
+    ok.
 
 %%% ===================================================
 %%% Test cases
@@ -105,13 +123,13 @@ t_auth_server_fail(Config) ->
        #{timetrap => 5000},
        begin
            meck:new(gen_rpc_auth, [passthrough]),
-           meck:expect(gen_rpc_auth, authenticate_server,
-                       fun(_Driver, _Socket) ->
-                               {error, {badrpc, unauthorized}}
+           meck:expect(gen_rpc_auth, connect_with_auth,
+                       fun(_Driver, _Node, _Port) ->
+                               {error, {badrpc, invalid_cookie}}
                        end),
            ok = gen_rpc_test_helper:start_master(Driver),
            ok = gen_rpc_test_helper:start_slave(Driver),
-           ?assertMatch({badrpc, unauthorized}, gen_rpc:call(?SLAVE, ?MODULE, canary, []))
+           ?assertMatch({badrpc, invalid_cookie}, gen_rpc:call(?SLAVE, ?MODULE, canary, []))
        end,
        [ fun ?MODULE:prop_canary/1
        ]).
@@ -127,7 +145,7 @@ t_auth_client_fail(Config) ->
            meck:new(gen_rpc_auth, [passthrough]),
            meck:expect(gen_rpc_auth, authenticate_client,
                        fun(_Driver, _Socket, _Peer) ->
-                               {error, {badrpc, unauthorized}}
+                               {error, {badrpc, invalid_cookie}}
                        end),
            ok = gen_rpc_test_helper:start_master(Driver),
            ok = gen_rpc_test_helper:start_slave(Driver),
@@ -150,7 +168,7 @@ t_challenge_response_invalid_cookie_client(Config) ->
            application:set_env(?APP, secret_cookie, <<"wrong">>),
            ok = gen_rpc_test_helper:start_master(Driver),
            ok = gen_rpc_test_helper:start_slave(Driver),
-           ?assertMatch({badrpc, unauthorized}, gen_rpc:call(?SLAVE, ?MODULE, canary, []))
+           ?assertMatch({badrpc, invalid_cookie}, gen_rpc:call(?SLAVE, ?MODULE, canary, []))
        after
            application:unset_env(?APP, secret_cookie)
        end,
@@ -170,11 +188,75 @@ t_challenge_response_invalid_cookie_server(Config) ->
                      fun() ->
                              application:set_env(?APP, secret_cookie, <<"wrong">>)
                      end),
-           ?assertMatch({badrpc, unauthorized},
+           ?assertMatch({badrpc, invalid_cookie},
                         gen_rpc:call(?SLAVE, ?MODULE, canary, []))
        end,
        [ fun ?MODULE:prop_canary/1
        , fun ?MODULE:prop_no_fallback/1
+       ]).
+
+%% Compatibility (happy case)
+t_compat_old_server_ok(Config) ->
+    Driver = gen_rpc_test_helper:get_driver_from_config(Config),
+    application:set_env(?APP, insecure_auth_fallback, true),
+    ?check_trace(
+       #{timetrap => 5000},
+       begin
+           ok = gen_rpc_test_helper:start_master(Driver),
+           ok = gen_rpc_test_helper:start_slave(Driver, old_path(Config)),
+           ?assertMatch(?SLAVE, gen_rpc:call(?SLAVE, erlang, node, []))
+       end,
+       [fun ?MODULE:prop_fallback/1]).
+
+%% Compatibility (happy case)
+t_compat_old_client_ok(Config) ->
+    Driver = gen_rpc_test_helper:get_driver_from_config(Config),
+    application:set_env(?APP, insecure_auth_fallback, true),
+    ?check_trace(
+       #{timetrap => 5000},
+       begin
+           ok = gen_rpc_test_helper:start_master(Driver),
+           ok = gen_rpc_test_helper:start_slave(Driver, old_path(Config)),
+           Result = erpc:call(?SLAVE, fun() ->
+                                              gen_rpc:call(?MASTER, erlang, node, [])
+                                      end),
+           ?assertMatch(?MASTER, Result)
+       end,
+       [fun ?MODULE:prop_fallback/1]).
+
+%% Compatibility (bad cookie)
+t_compat_old_server_invalid_cookie(Config) ->
+    Driver = gen_rpc_test_helper:get_driver_from_config(Config),
+    application:set_env(?APP, insecure_auth_fallback, true),
+    ?check_trace(
+       #{timetrap => 5000},
+       begin
+           application:set_env(?APP, secret_cookie, <<"wrong">>),
+           ok = gen_rpc_test_helper:start_master(Driver),
+           ok = gen_rpc_test_helper:start_slave(Driver, old_path(Config)),
+           Result = erpc:call(?SLAVE, fun() ->
+                                              gen_rpc:call(?MASTER, erlang, node, [])
+                                      end),
+           ?assertMatch({badrpc, invalid_cookie}, Result)
+       end,
+       [ fun ?MODULE:prop_canary/1
+       , fun ?MODULE:prop_fallback/1
+       ]).
+
+%% Compatibility (happy case)
+t_compat_old_client_invalid_cookie(Config) ->
+    Driver = gen_rpc_test_helper:get_driver_from_config(Config),
+    application:set_env(?APP, insecure_auth_fallback, true),
+    ?check_trace(
+       #{timetrap => 5000},
+       begin
+           application:set_env(?APP, secret_cookie, <<"wrong">>),
+           ok = gen_rpc_test_helper:start_master(Driver),
+           ok = gen_rpc_test_helper:start_slave(Driver, old_path(Config)),
+           ?assertMatch({badrpc, invalid_cookie}, gen_rpc:call(?SLAVE, ?MODULE, canary, []))
+       end,
+       [ fun ?MODULE:prop_canary/1
+       , fun ?MODULE:prop_fallback/1
        ]).
 
 %%% ===================================================
@@ -190,3 +272,12 @@ prop_canary(Trace) ->
 
 prop_no_fallback(Trace) ->
     ?assertMatch([], ?of_kind(gen_rpc_insecure_fallback, Trace)).
+
+prop_fallback(Trace) ->
+    ?assertMatch([_|_], ?of_kind(gen_rpc_insecure_fallback, Trace)).
+
+old_path(Config) ->
+    OldRelDir = proplists:get_value(old_rel_dir, Config),
+    Paths = lists:filter(fun(Path) -> not lists:suffix("gen_rpc/ebin", Path) end,
+                         code:get_path()),
+    [OldRelDir|Paths].

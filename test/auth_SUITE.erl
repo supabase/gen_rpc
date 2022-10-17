@@ -60,6 +60,9 @@ init_per_suite(Config) ->
     OldRelDir = filename:join(DataDir, "gen_rpc/_build/test/lib/gen_rpc/ebin"),
     [{old_rel_dir, OldRelDir} | Config].
 
+end_per_suite(Config) ->
+    Config.
+
 init_per_group(Group, Config) ->
     % Our group name is the name of the driver
     Driver = Group,
@@ -68,8 +71,8 @@ init_per_group(Group, Config) ->
     %% Save the driver in the state
     gen_rpc_test_helper:store_driver_in_config(Driver, Config).
 
-end_per_group(_Driver, _Config) ->
-    ok.
+end_per_group(_Driver, Config) ->
+    Config.
 
 init_per_testcase(Testcase, Config) ->
     snabbkaffe:fix_ct_logging(),

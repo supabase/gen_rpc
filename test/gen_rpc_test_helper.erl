@@ -89,9 +89,9 @@ set_application_environment(?SLAVE) ->
     ok.
 
 set_driver_configuration(ssl, ?MASTER) ->
-    Prefix = filename:join(["..", "..", ".."]),
-    CertFile = filename:join([Prefix, "priv", "ssl", atom_to_list(?MASTER)]),
-    CaFile = filename:join([Prefix, "priv", "ssl", "ca.cert.pem"]),
+    Prefix = code:priv_dir(?APP),
+    CertFile = filename:join([Prefix, "ssl", atom_to_list(?MASTER)]),
+    CaFile = filename:join([Prefix, "ssl", "ca.cert.pem"]),
     ok = application:set_env(?APP, default_client_driver, ssl, [{persistent, true}]),
     ok = application:set_env(?APP, ssl_server_port, ?MASTER_PORT, [{persistent, true}]),
     ok = application:set_env(?APP, certfile, CertFile ++ ".cert.pem", [{persistent, true}]),
@@ -99,9 +99,9 @@ set_driver_configuration(ssl, ?MASTER) ->
     ok = application:set_env(?APP, cacertfile, CaFile, [{persistent, true}]);
 
 set_driver_configuration(ssl, ?SLAVE) ->
-    Prefix = filename:join(["..", "..", ".."]),
-    CertFile = filename:join([Prefix, "priv", "ssl", atom_to_list(?SLAVE)]),
-    CaFile = filename:join([Prefix, "priv", "ssl", "ca.cert.pem"]),
+    Prefix = code:priv_dir(?APP),
+    CertFile = filename:join([Prefix, "ssl", atom_to_list(?SLAVE)]),
+    CaFile = filename:join([Prefix, "ssl", "ca.cert.pem"]),
     ok = rpc:call(?SLAVE, application, set_env, [?APP, default_client_driver, ssl, [{persistent, true}]]),
     ok = rpc:call(?SLAVE, application, set_env, [?APP, ssl_server_port, ?SLAVE_PORT, [{persistent, true}]]),
     ok = rpc:call(?SLAVE, application, set_env, [?APP, ssl_server_options, [

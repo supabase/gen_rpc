@@ -84,7 +84,7 @@ connect_with_auth(Driver, Node, Port) ->
 -spec authenticate_client(module(), term(), tuple()) -> ok | {error, auth_error()}.
 authenticate_client(Driver, Socket, Peer) ->
     ok = Driver:set_send_timeout(Socket, gen_rpc_helper:get_send_timeout(undefined)),
-    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
+    RecvTimeout = gen_rpc_helper:get_authentication_timeout(),
     Fallback = insecure_fallback(),
     case Driver:recv(Socket, 0, RecvTimeout) of
         {ok, Data} ->
@@ -93,7 +93,6 @@ authenticate_client(Driver, Socket, Peer) ->
                     ?tp(warning, gen_rpc_insecure_fallback, #{peer => Peer, role => server}),
                     authenticate_client_insecure(Driver, Socket, Peer, Data);
                 Result ->
-                    ?tp(warning, gen_rpc_insecure_fallback_false, #{peer => Peer, role => server, result => Result}),
                     Result
             end;
         {error, Reason} ->
@@ -451,7 +450,7 @@ get_cookie() ->
 get_cookie_atom() ->
     case application:get_env(gen_rpc, secret_cookie) of
         {ok, Cookie} ->
-            binary_to_atom(Cookie);
+            binary_to_atom(Cookie, latin1);
         undefined ->
             erlang:get_cookie()
     end.

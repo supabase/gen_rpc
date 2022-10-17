@@ -41,7 +41,7 @@ start_master() {
 	docker cp ~/.cache/rebar3 ${NAME}:/root/.cache/rebar3
 	docker exec -ti ${NAME} bash -c "cd /gen_rpc && make"
 	echo Starting integration tests on container ${NAME}
-	docker exec -ti gen_rpc_master bash -c "export NODES=${NODES} NODE=gen_rpc@${IP} && cd /gen_rpc && make && ./rebar3 as test do ct --suite test/ct/integration_SUITE"
+	docker exec -ti gen_rpc_master bash -c "export NODES=${NODES} NODE=gen_rpc@${IP} && cd /gen_rpc && make && ./rebar3 as test do ct --suite test/ct/integration_suite"
 }
 
 destroy() {

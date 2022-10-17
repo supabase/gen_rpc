@@ -1,10 +1,11 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
+%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 
--module(integration_SUITE).
+-module(integration_suite).
 -author("Panagiotis Papadomitsos <pj@ezgr.net>").
 
 %%% CT Macros

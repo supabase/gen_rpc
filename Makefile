@@ -82,7 +82,7 @@ test: epmd
 	@REBAR_PROFILE=test $(REBAR) do eunit, ct  --name gen_rpc_master@127.0.0.1 --cover, cover
 
 dialyzer: $(PLT_FILE)
-	@REBAR_PROFILE=dev $(REBAR) do dialyzer
+	@REBAR_PROFILE=dev $(REBAR) do compile, dialyzer
 
 xref:
 	@REBAR_PROFILE=dev $(REBAR) do xref

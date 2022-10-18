@@ -40,12 +40,12 @@
 
 %% Packets
 -record(gen_rpc_authenticate_c,
-        { challenge :: binary()
+        { challenge :: challenge()
         }).
 
 -record(gen_rpc_authenticate_cr,
         { response  :: binary()
-        , challenge :: binary()
+        , challenge :: challenge()
         }).
 
 -record(gen_rpc_authenticate_r,
@@ -69,7 +69,7 @@
               | {error, auth_error()}
               | {unreachable, _Reason}.
 connect_with_auth(Driver, Node, Port) ->
-    Fallback = insecure_fallback(),
+    Fallback = insecure_fallback_allowed(),
     case connect_with_auth(Driver, Node, Port, fun authenticate_server_cr/2) of
         {ok, Socket} ->
             {ok, Socket};
@@ -85,7 +85,7 @@ connect_with_auth(Driver, Node, Port) ->
 authenticate_client(Driver, Socket, Peer) ->
     ok = Driver:set_send_timeout(Socket, gen_rpc_helper:get_send_timeout(undefined)),
     RecvTimeout = gen_rpc_helper:get_authentication_timeout(),
-    Fallback = insecure_fallback(),
+    Fallback = insecure_fallback_allowed(),
     case Driver:recv(Socket, 0, RecvTimeout) of
         {ok, Data} ->
             case authenticate_client_cr(Driver, Socket, Data) of
@@ -186,7 +186,7 @@ authenticate_server_insecure(Driver, Socket) ->
         send(Driver, Socket, Packet, insecure_cookie),
         %% Wait for the reply:
         RecvPacket = recv(Driver, Socket, insecure_response),
-        try erlang:binary_to_term(RecvPacket) of
+        try erlang:binary_to_term(RecvPacket, [safe]) of
             gen_rpc_connection_authenticated ->
                 ?log(debug, "event=connection_authenticated socket=\"~s\"",
                      [gen_rpc_helper:socket_to_string(Socket)]),
@@ -219,15 +219,22 @@ authenticate_server_insecure(Driver, Socket) ->
 authenticate_client_insecure(Driver, Socket, Peer, Data) ->
     Cookie = get_cookie_atom(),
     CheckResult =
-        try erlang:binary_to_term(Data) of
+        try erlang:binary_to_term(Data, [safe]) of
             {gen_rpc_authenticate_connection, Cookie} ->
                 ok;
             {gen_rpc_authenticate_connection, _Node, Cookie} ->
                 %% Old authentication packet sent by SSL driver
                 ok;
             {gen_rpc_authenticate_connection, _InvalidCookie} ->
+                %% Note: this case may not actually trigger, since
+                %% `binary_to_term' runs with `safe' option, so
+                %% instead of `invalid_cookie' the error code becomes
+                %% `corrupt_data'. But it's more secure, since it
+                %% prevents atom table DOS attack.
                 invalid_cookie;
             {gen_rpc_authenticate_connection, _Node, _InvalidCookie} ->
+                %% Note: same problem as above
+                %%
                 %% Old authentication packet sent by SSL driver
                 invalid_cookie;
             _ ->
@@ -436,8 +443,8 @@ do_compare_binaries([A|L1], [B|L2], Acc) ->
 do_compare_binaries(_, _, Acc) ->
     Acc.
 
-insecure_fallback() ->
-    application:get_env(gen_rpc, insecure_auth_fallback, false).
+insecure_fallback_allowed() ->
+    application:get_env(gen_rpc, insecure_auth_fallback_allowed, false).
 
 get_cookie() ->
     case application:get_env(gen_rpc, secret_cookie) of

@@ -2,6 +2,10 @@
 
 Below is a non-exhaustive list of changes between `gen_rpc` versions.
 
+## 3.0.0
+
+- Security: implement challenge-response authentication; avoid sending cookie over the network
+
 ## 2.1.0
 
 - Support multiple connections per node using aribtrary keys.
@@ -39,7 +43,7 @@ This release boasts a major rengineer/refactor of `gen_rpc` that includes quite 
 
 - Tests have been updated to test more edge cases, including new SSL functionality.
 
-- Some options in `gen_rpc.app.src` have changed names to better describe what they do. Again, pleaserefer to the README to
+- Some options in `gen_rpc.app.src` have changed names to better describe what they do. Again, please refer to the README to
   verify your preexisting settings are consistent with their new names.
 
 - Various smaller bugs have been fixed and various responses have been massaged for consistency.

@@ -43,6 +43,7 @@ groups() ->
 
 init_per_suite(Config) ->
     DataDir = proplists:get_value(data_dir, Config),
+    %% Build an old version of gen_rpc to test backward/forward compatibility:
     Ret = os:cmd("mkdir -p '" ++ DataDir ++ "' &&
                   cd '" ++ DataDir ++ "' &&
                   git clone https://github.com/emqx/gen_rpc.git || true &&
@@ -201,7 +202,7 @@ t_challenge_response_invalid_cookie_server(Config) ->
 %% Compatibility (happy case)
 t_compat_old_server_ok(Config) ->
     Driver = gen_rpc_test_helper:get_driver_from_config(Config),
-    application:set_env(?APP, insecure_auth_fallback, true),
+    application:set_env(?APP, insecure_auth_fallback_allowed, true),
     ?check_trace(
        #{timetrap => 5000},
        begin
@@ -214,7 +215,7 @@ t_compat_old_server_ok(Config) ->
 %% Compatibility (happy case)
 t_compat_old_client_ok(Config) ->
     Driver = gen_rpc_test_helper:get_driver_from_config(Config),
-    application:set_env(?APP, insecure_auth_fallback, true),
+    application:set_env(?APP, insecure_auth_fallback_allowed, true),
     ?check_trace(
        #{timetrap => 5000},
        begin
@@ -230,7 +231,7 @@ t_compat_old_client_ok(Config) ->
 %% Compatibility (bad cookie)
 t_compat_old_server_invalid_cookie(Config) ->
     Driver = gen_rpc_test_helper:get_driver_from_config(Config),
-    application:set_env(?APP, insecure_auth_fallback, true),
+    application:set_env(?APP, insecure_auth_fallback_allowed, true),
     ?check_trace(
        #{timetrap => 5000},
        begin
@@ -246,10 +247,10 @@ t_compat_old_server_invalid_cookie(Config) ->
        , fun ?MODULE:prop_fallback/1
        ]).
 
-%% Compatibility (happy case)
+%% Compatibility (bad cookie)
 t_compat_old_client_invalid_cookie(Config) ->
     Driver = gen_rpc_test_helper:get_driver_from_config(Config),
-    application:set_env(?APP, insecure_auth_fallback, true),
+    application:set_env(?APP, insecure_auth_fallback_allowed, true),
     ?check_trace(
        #{timetrap => 5000},
        begin

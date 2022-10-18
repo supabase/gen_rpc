@@ -26,3 +26,4 @@ rebar
 Makefile.orig.mk
 gen_rpc.d
 .rebar3/
+TAGS

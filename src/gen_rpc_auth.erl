@@ -451,13 +451,13 @@ get_cookie() ->
         {ok, Cookie} ->
             Cookie;
         undefined ->
-            atom_to_binary(erlang:get_cookie(), latin1)
+            atom_to_binary(erlang:get_cookie(), utf8)
     end.
 
 get_cookie_atom() ->
     case application:get_env(gen_rpc, secret_cookie) of
         {ok, Cookie} ->
-            binary_to_atom(Cookie, latin1);
+            binary_to_atom(Cookie, utf8);
         undefined ->
             erlang:get_cookie()
     end.

@@ -1,6 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
+%%% Copyright (c) 2015-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 -module(gen_rpc_test_helper).
@@ -13,19 +14,21 @@
 
 %%% Public API
 -export([start_distribution/1,
-        start_master/1,
-        start_slave/1,
-        stop_slave/0,
-        set_driver_configuration/2,
-        set_application_environment/1,
-        store_driver_in_config/2,
-        get_driver_from_config/1,
-        get_test_functions/1,
-        spawn_long_running/1,
-        spawn_short_running/0,
-        stub_function/0,
-        ping/1,
-        test_call/1]).
+         start_master/1,
+         start_slave/2,
+         start_slave/1,
+         stop_slave/0,
+         set_driver_configuration/2,
+         set_application_environment/1,
+         store_driver_in_config/2,
+         get_driver_from_config/1,
+         get_test_functions/1,
+         spawn_long_running/1,
+         spawn_short_running/0,
+         stub_function/0,
+         ping/1,
+         test_call/1
+        ]).
 
 %%% ===================================================
 %%% Public API
@@ -52,12 +55,16 @@ start_master(Driver) ->
     ok.
 
 start_slave(Driver) ->
+    start_slave(Driver, code:get_path()).
+
+start_slave(Driver, Paths) ->
+    stop_slave(),
     %% Starting a slave node with Distributed Erlang
     SlaveStr = atom_to_list(?SLAVE),
     [NameStr, IpStr] = string:tokens(SlaveStr, [$@]),
     Name = list_to_atom(NameStr),
     {ok, _Slave} = slave:start(IpStr, Name),
-    ok = rpc:call(?SLAVE, code, add_pathsz, [code:get_path()]),
+    ok = rpc:call(?SLAVE, code, add_pathsz, [Paths]),
     ok = set_application_environment(?SLAVE),
     ok = set_driver_configuration(Driver, ?SLAVE),
     %% Start the application remotely
@@ -82,9 +89,9 @@ set_application_environment(?SLAVE) ->
     ok.
 
 set_driver_configuration(ssl, ?MASTER) ->
-    Prefix = filename:join(["..", "..", ".."]),
-    CertFile = filename:join([Prefix, "priv", "ssl", atom_to_list(?MASTER)]),
-    CaFile = filename:join([Prefix, "priv", "ssl", "ca.cert.pem"]),
+    Prefix = code:priv_dir(?APP),
+    CertFile = filename:join([Prefix, "ssl", atom_to_list(?MASTER)]),
+    CaFile = filename:join([Prefix, "ssl", "ca.cert.pem"]),
     ok = application:set_env(?APP, default_client_driver, ssl, [{persistent, true}]),
     ok = application:set_env(?APP, ssl_server_port, ?MASTER_PORT, [{persistent, true}]),
     ok = application:set_env(?APP, certfile, CertFile ++ ".cert.pem", [{persistent, true}]),
@@ -92,9 +99,9 @@ set_driver_configuration(ssl, ?MASTER) ->
     ok = application:set_env(?APP, cacertfile, CaFile, [{persistent, true}]);
 
 set_driver_configuration(ssl, ?SLAVE) ->
-    Prefix = filename:join(["..", "..", ".."]),
-    CertFile = filename:join([Prefix, "priv", "ssl", atom_to_list(?SLAVE)]),
-    CaFile = filename:join([Prefix, "priv", "ssl", "ca.cert.pem"]),
+    Prefix = code:priv_dir(?APP),
+    CertFile = filename:join([Prefix, "ssl", atom_to_list(?SLAVE)]),
+    CaFile = filename:join([Prefix, "ssl", "ca.cert.pem"]),
     ok = rpc:call(?SLAVE, application, set_env, [?APP, default_client_driver, ssl, [{persistent, true}]]),
     ok = rpc:call(?SLAVE, application, set_env, [?APP, ssl_server_port, ?SLAVE_PORT, [{persistent, true}]]),
     ok = rpc:call(?SLAVE, application, set_env, [?APP, ssl_server_options, [

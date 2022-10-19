@@ -1,6 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
+%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 
@@ -14,11 +15,11 @@
 
 -callback activate_socket(term()) -> ok | {error, term()}.
 
--callback authenticate_server(term()) -> ok | {error, {badtcp | badrpc, term()}}.
-
--callback authenticate_client(term(), tuple(), binary()) -> ok | {error, {badtcp | badrpc, term()}}.
+-callback recv(term(), non_neg_integer(), timeout()) -> {ok, binary()} | {error, _Reason}.
 
 -callback send(term(), binary()) -> ok | {error, term()}.
+
+-callback close(term()) -> ok | {error, _}.
 
 -callback get_peer(term()) -> {inet:ip4_address(), inet:port_number()}.
 

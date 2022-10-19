@@ -1,6 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
+%%% Copyright 2015-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 -ifndef(GEN_RPC_HRL_H).
@@ -23,7 +24,7 @@
 -define(ACCEPTOR_DEFAULT_TCP_OPTS, [binary,
         {packet,4},
         {exit_on_close,true},
-        {active,once}]). % Retrieve data from socket upon request
+        {active,false}]).
 
 %%% The TCP options that should be copied from the listener to the acceptor
 -define(ACCEPTOR_COPY_TCP_OPTS, [nodelay,

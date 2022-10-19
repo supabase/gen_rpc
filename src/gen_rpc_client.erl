@@ -1,6 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
+%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
@@ -93,33 +94,16 @@ call(NodeOrTuple, M, F, A, RecvTimeout) ->
 call(NodeOrTuple, M, F, A, RecvTimeout, SendTimeout) when ?is_node_or_tuple(NodeOrTuple), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A),
                                          RecvTimeout =:= undefined orelse ?is_timeout(RecvTimeout),
                                          SendTimeout =:= undefined orelse ?is_timeout(SendTimeout) ->
-    %% Create a unique name for the client because we register as such
-    PidName = ?NAME(NodeOrTuple),
-    case gen_rpc_registry:whereis_name(PidName) of
-        undefined ->
-            ?log(info, "event=client_process_not_found target=\"~p\" action=spawning_client", [NodeOrTuple]),
-            case gen_rpc_dispatcher:start_client(NodeOrTuple) of
-                {ok, NewPid} ->
-                    %% We take care of CALL inside the gen_server
-                    %% This is not resilient enough if the caller's mailbox is full
-                    %% but it's good enough for now
-                    try
-                        gen_server:call(NewPid, {{call,M,F,A}, SendTimeout}, gen_rpc_helper:get_call_receive_timeout(RecvTimeout))
-                    catch
-                        exit:{timeout,_Reason} -> {badrpc,timeout};
-                        exit:OtherReason -> {badrpc, {unknown_error, OtherReason}}
-                    end;
-                {error, Reason} ->
-                    Reason
-            end;
-        Pid ->
-            ?log(debug, "event=client_process_found pid=\"~p\" target=\"~p\"", [Pid, NodeOrTuple]),
+    case maybe_start_client(NodeOrTuple) of
+        {ok, Pid} ->
             try
                 gen_server:call(Pid, {{call,M,F,A}, SendTimeout}, gen_rpc_helper:get_call_receive_timeout(RecvTimeout))
             catch
                 exit:{timeout,_Reason} -> {badrpc,timeout};
                 exit:OtherReason -> {badrpc, {unknown_error, OtherReason}}
-            end
+            end;
+        {error, Reason} ->
+            Reason
     end.
 
 %% Simple server cast with no args and default timeout values
@@ -256,40 +240,37 @@ init({Node}) ->
         {Driver, Port} ->
             {DriverMod, DriverClosed, DriverError} = gen_rpc_helper:get_client_driver_options(Driver),
             ?log(info, "event=initializing_client driver=~s node=\"~s\" port=~B", [Driver, Node, Port]),
-            case DriverMod:connect(Node, Port) of
+            case gen_rpc_auth:connect_with_auth(DriverMod, Node, Port) of
                 {ok, Socket} ->
-                    case DriverMod:authenticate_server(Socket) of
-                        ok ->
-                            Interval = application:get_env(?APP, keepalive_interval, 60), % 60s
-                            StatFun = fun() ->
-                                        case DriverMod:getstat(Socket, [recv_oct]) of
-                                            {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
-                                            {error, Error}              -> {error, Error}
-                                        end
-                                      end,
-                            case gen_rpc_keepalive:start(StatFun, Interval, {keepalive, check}) of
-                                {ok, KeepAlive} ->
-                                    MaxBatchSize = application:get_env(?APP, max_batch_size, 0),
-                                    {ok, #state{socket=Socket,
-                                                driver=Driver,
-                                                driver_mod=DriverMod,
-                                                driver_closed=DriverClosed,
-                                                driver_error=DriverError,
-                                                max_batch_size=MaxBatchSize,
-                                                keepalive=KeepAlive},
-                                    gen_rpc_helper:get_inactivity_timeout(?MODULE)};
-                                {error, Error} ->
-                                    ?log(error, "event=start_keepalive_failed driver=~p, reason=\"~p\"", [Driver, Error]),
-                                    {stop, Error}
-                            end;
-                        {error, ReasonTuple} ->
-                            ?log(error, "event=client_authentication_failed driver=~s reason=\"~p\"", [Driver, ReasonTuple]),
-                            {stop, ReasonTuple}
+                    Interval = application:get_env(?APP, keepalive_interval, 60), % 60s
+                    StatFun = fun() ->
+                                      case DriverMod:getstat(Socket, [recv_oct]) of
+                                          {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
+                                          {error, Error}              -> {error, Error}
+                                      end
+                              end,
+                    case gen_rpc_keepalive:start(StatFun, Interval, {keepalive, check}) of
+                        {ok, KeepAlive} ->
+                            MaxBatchSize = application:get_env(?APP, max_batch_size, 0),
+                            {ok, #state{socket=Socket,
+                                        driver=Driver,
+                                        driver_mod=DriverMod,
+                                        driver_closed=DriverClosed,
+                                        driver_error=DriverError,
+                                        max_batch_size=MaxBatchSize,
+                                        keepalive=KeepAlive},
+                             gen_rpc_helper:get_inactivity_timeout(?MODULE)};
+                        {error, Error} ->
+                            ?log(error, "event=start_keepalive_failed driver=~p, reason=\"~p\"", [Driver, Error]),
+                            {stop, Error}
                     end;
-                {error, {_Class,Reason}} ->
+                {error, ReasonTuple} ->
+                    ?log(error, "event=client_authentication_failed driver=~s reason=\"~p\"", [Driver, ReasonTuple]),
+                    {stop, ReasonTuple};
+                {unreachable, Reason} ->
                     %% This should be badtcp but to conform with
                     %% the RPC library we return badrpc
-                    {stop, {badrpc,Reason}}
+                    {stop, {badrpc, Reason}}
             end
     end.
 
@@ -587,4 +568,16 @@ drain_cast(N, CastReqs) ->
             drain_cast(N-1, [Req | CastReqs])
     after 0 ->
         lists:reverse(CastReqs)
+    end.
+
+-spec maybe_start_client(node_or_tuple()) -> {ok, pid()} | {error, any()}.
+maybe_start_client(NodeOrTuple) ->
+    %% Create a unique name for the client because we register as such
+    PidName = ?NAME(NodeOrTuple),
+    case gen_rpc_registry:whereis_name(PidName) of
+        undefined ->
+            ?log(info, "event=client_process_not_found target=\"~p\" action=spawning_client", [NodeOrTuple]),
+            gen_rpc_dispatcher:start_client(NodeOrTuple);
+        Pid ->
+            {ok, Pid}
     end.

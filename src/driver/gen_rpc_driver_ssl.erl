@@ -1,6 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
+%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
@@ -25,18 +26,18 @@
 
 %%% Public API
 -export([connect/2,
-        listen/1,
-        accept/1,
-        get_peer/1,
-        send/2,
-        activate_socket/1,
-        authenticate_server/1,
-        authenticate_client/3,
-        copy_sock_opts/2,
-        set_controlling_process/2,
-        set_send_timeout/2,
-        set_acceptor_opts/1,
-        getstat/2]).
+         listen/1,
+         accept/1,
+         get_peer/1,
+         send/2,
+         activate_socket/1,
+         recv/3,
+         close/1,
+         copy_sock_opts/2,
+         set_controlling_process/2,
+         set_send_timeout/2,
+         set_acceptor_opts/1,
+         getstat/2]).
 
 %%% ===================================================
 %%% Public API
@@ -98,88 +99,13 @@ send(Socket, Data) when is_tuple(Socket), is_binary(Data) ->
 activate_socket(Socket) when is_tuple(Socket) ->
     ssl:setopts(Socket, [{active, true}]).
 
-%% Authenticate to a server
--spec authenticate_server(ssl:sslsocket()) -> ok | {error, {badtcp | badrpc, term()}}.
-authenticate_server(Socket) ->
-    Cookie = erlang:get_cookie(),
-    NodeStr = erlang:atom_to_list(node()),
-    Packet = erlang:term_to_binary({gen_rpc_authenticate_connection, NodeStr, Cookie}),
-    SendTimeout = gen_rpc_helper:get_send_timeout(undefined),
-    RecvTimeout = gen_rpc_helper:get_call_receive_timeout(undefined),
-    ok = set_send_timeout(Socket, SendTimeout),
-    case ssl:send(Socket, Packet) of
-        {error, Reason} ->
-            ?log(error, "event=authentication_connection_failed socket=\"~s\" reason=\"~p\"",
-                 [gen_rpc_helper:socket_to_string(Socket), Reason]),
-            ok = ssl:close(Socket),
-            {error, {badtcp,Reason}};
-        ok ->
-            ?log(debug, "event=authentication_connection_succeeded socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
-            case ssl:recv(Socket, 0, RecvTimeout) of
-                {ok, RecvPacket} ->
-                    case erlang:binary_to_term(RecvPacket) of
-                        gen_rpc_connection_authenticated ->
-                            ?log(debug, "event=connection_authenticated socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
-                            ok;
-                        {gen_rpc_connection_rejected, Reason} ->
-                            ?log(error, "event=authentication_rejected socket=\"~s\" reason=\"~s\"", [gen_rpc_helper:socket_to_string(Socket), Reason]),
-                            ok = ssl:close(Socket),
-                            {error, {badrpc,Reason}};
-                        _Else ->
-                            ?log(error, "event=authentication_transmission_error socket=\"~s\" reason=\"invalid_payload\"",
-                                 [gen_rpc_helper:socket_to_string(Socket)]),
-                            ok = ssl:close(Socket),
-                            {error, {badrpc,invalid_message}}
-                    end;
-                {error, Reason} ->
-                    ?log(error, "event=authentication_reception_failed socket=\"~s\" reason=\"~p\"",
-                         [gen_rpc_helper:socket_to_string(Socket), Reason]),
-                    ok = ssl:close(Socket),
-                    {error, {badtcp,Reason}}
-            end
-    end.
+-spec recv(ssl:sslsocket(), non_neg_integer(), timeout()) -> {ok, binary()} | {error, _}.
+recv(Socket, Length, Timeout) ->
+    ssl:recv(Socket, Length, Timeout).
 
-%% Authenticate a connected client
--spec authenticate_client(ssl:sslsocket(), tuple(), binary()) -> ok | {error, {badtcp | badrpc, term()}}.
-authenticate_client(Socket, Peer, Data) ->
-    Cookie = erlang:get_cookie(),
-    try erlang:binary_to_term(Data) of
-        {gen_rpc_authenticate_connection, _Node, Cookie} -> %% Old and insecure way to authenticate peers
-            AuthResult = ok,
-            SocketResponse = gen_rpc_connection_authenticated,
-            Packet = erlang:term_to_binary(SocketResponse),
-            case send(Socket, Packet) of
-                {error, Reason} ->
-                    ?log(error, "event=transmission_failed socket=\"~s\" peer=\"~s\" reason=\"~p\"",
-                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), Reason]),
-                    {error, {badtcp,Reason}};
-                ok ->
-                    ?log(debug, "event=transmission_succeeded socket=\"~s\" peer=\"~s\"",
-                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)]),
-                    ok = activate_socket(Socket),
-                    AuthResult
-            end;
-        {gen_rpc_authenticate_connection, _Node, _IncorrectCookie} ->
-            ?log(error, "event=invalid_cookie_received socket=\"~s\" peer=\"~s\"",
-                 [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)]),
-            Packet = erlang:term_to_binary({gen_rpc_connection_rejected, invalid_cookie}),
-            ok = case send(Socket, Packet) of
-                {error, Reason} ->
-                    ?log(error, "event=transmission_failed socket=\"~s\" peer=\"~s\" reason=\"~p\"",
-                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), Reason]);
-                ok ->
-                    ?log(debug, "event=transmission_succeeded socket=\"~s\" peer=\"~s\"",
-                         [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer)])
-            end,
-            {error, {badrpc,invalid_cookie}};
-        OtherData ->
-            ?log(debug, "event=erroneous_data_received socket=\"~s\" peer=\"~s\" data=\"~p\"",
-                 [gen_rpc_helper:socket_to_string(Socket), gen_rpc_helper:peer_to_string(Peer), OtherData]),
-            {error, {badrpc,erroneous_data}}
-    catch
-        error:badarg ->
-            {error, {badtcp,corrupt_data}}
-    end.
+-spec close(ssl:sslsocket()) -> ok | {error, _}.
+close(Socket) ->
+    ssl:close(Socket).
 
 -spec copy_sock_opts(port(), port()) -> ok | {error, any()}.
 copy_sock_opts(_ListSock, _AccSock) ->

@@ -1,4 +1,5 @@
 #
+# Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 # Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 #
 # Build targets:
@@ -46,17 +47,8 @@ ifeq ($(ERL),)
 $(error "Erlang not available on this system")
 endif
 
-# If there is a rebar in the current directory, use it
-ifeq ($(wildcard rebar3),rebar3)
-REBAR = $(CURDIR)/rebar3
-endif
 
-# And finally, prep to download rebar if all else fails
-ifeq ($(REBAR),)
-REBAR = $(CURDIR)/rebar3
-endif
-
-REBAR_URL = https://s3.amazonaws.com/rebar3/rebar3
+REBAR = rebar3
 
 OTP_RELEASE = $(shell escript otp-release.escript)
 
@@ -83,22 +75,22 @@ endif
 # Build targets
 # =============================================================================
 
-all: $(REBAR)
+all:
 	@REBAR_PROFILE=dev $(REBAR) do compile
 
-test: $(REBAR) epmd
-	@REBAR_PROFILE=test $(REBAR) do ct -c, cover
+test: epmd
+	@REBAR_PROFILE=test $(REBAR) do eunit, ct  --name gen_rpc_master@127.0.0.1 --cover, cover
 
-dialyzer: $(REBAR) $(PLT_FILE)
-	@REBAR_PROFILE=dev $(REBAR) do dialyzer
+dialyzer: $(PLT_FILE)
+	@REBAR_PROFILE=dev $(REBAR) do compile, dialyzer
 
-xref: $(REBAR)
+xref:
 	@REBAR_PROFILE=dev $(REBAR) do xref
 
 spec: dialyzer
 	@$(TYPER) --annotate-inc-files -I ./include --plt $(PLT_FILE) -r src/
 
-dist: $(REBAR) test
+dist: test
 	@REBAR_PROFILE=dev $(REBAR) do dialyzer, xref
 
 travis: testclean dist
@@ -110,10 +102,10 @@ travis: testclean dist
 
 shell: shell-master
 
-shell-master: $(REBAR) epmd
+shell-master: epmd
 	@REBAR_PROFILE=dev $(REBAR) do shell --name gen_rpc_master@127.0.0.1 --config test/gen_rpc.master.config
 
-shell-slave: $(REBAR) epmd
+shell-slave: epmd
 	@REBAR_PROFILE=dev $(REBAR) do shell --name gen_rpc_slave@127.0.0.1 --config test/gen_rpc.slave.config
 
 # =============================================================================
@@ -125,7 +117,7 @@ clean: $(REBAR)
 	@rm -f rebar.lock
 
 distclean: $(REBAR)
-	@rm -rf _build _plt .rebar Mnesia* mnesia* log/ data/ temp-data/ rebar.lock
+	@rm -rf _build _plt .rebar Mnesia* mnesia* data/ temp-data/ rebar.lock
 	@find . -name erl_crash.dump -type f -delete
 	@$(REBAR) clean -a
 
@@ -135,11 +127,6 @@ testclean:
 
 epmd:
 	@pgrep epmd 2> /dev/null > /dev/null || epmd -daemon || true
-
-$(REBAR):
-	@curl -Lo rebar3 $(REBAR_URL) || wget $(REBAR_URL)
-	@chmod a+x rebar3
-	@$(CURDIR)/rebar3 update
 
 tags:
 	find src _build/default/lib -name "*.[he]rl" -print | etags -

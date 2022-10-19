@@ -1,6 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
+%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 
@@ -117,12 +118,14 @@ authentication_timeout(_Config) ->
     ok = gen_rpc_test_helper:start_master(tcp),
 
     [] = supervisor:which_children(gen_rpc_acceptor_sup),
+    ct:pal("Connecting..."),
     {ok, _Sock} = gen_tcp:connect("127.0.0.1", ?MASTER_PORT, ?TCP_DEFAULT_OPTS),
     %% Give the server some time to launch the acceptor
     ok = timer:sleep(50),
     %% The acceptor has been launched
     [_Master] = supervisor:which_children(gen_rpc_acceptor_sup),
     ok = timer:sleep(1000),
+    erlang:display("Waited timeout"),
     %% The acceptor should have shut down
     [] = supervisor:which_children(gen_rpc_acceptor_sup),
     ok.

@@ -35,7 +35,7 @@ start_child(Driver, Peer) when is_tuple(Peer) ->
         {error, {already_started, CPid}} ->
             %% If we've already started the child, terminate it and start anew
             ok = stop_child(CPid),
-            supervisor:start_child(?MODULE, [Peer]);
+            supervisor:start_child(?MODULE, [Driver, Peer]);
         {error, OtherError} ->
             {error, OtherError};
         {ok, Pid} ->

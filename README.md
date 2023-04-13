@@ -1,15 +1,10 @@
-# gen_rpc: A scalable RPC library for Erlang-VM based languages
+# gen_rpc: A scalable RPC library for Erlang-VM based languages [![Run test case](https://github.com/emqx/gen_rpc/actions/workflows/run_test_case.yaml/badge.svg?branch=master)](https://github.com/emqx/gen_rpc/actions/workflows/run_test_case.yaml)
 
 Warning: don't use in the new products!
 This repo is maintained only temporary for legacy support.
 
 ## Overview
 
-- Latest release: ![Tag Version](https://img.shields.io/github/tag/priestjim/gen_rpc.svg)
-- Branch status (`master`): [![Build Status](https://travis-ci.org/priestjim/gen_rpc.svg?branch=master)](https://travis-ci.org/priestjim/gen_rpc) [![Coverage Status](https://coveralls.io/repos/priestjim/gen_rpc/badge.svg?branch=master&service=github)](https://coveralls.io/github/priestjim/gen_rpc?branch=master)
-- Branch status (`develop`): [![Build Status](https://travis-ci.org/priestjim/gen_rpc.svg?branch=develop)](https://travis-ci.org/priestjim/gen_rpc) [![Coverage Status](https://coveralls.io/repos/priestjim/gen_rpc/badge.svg?branch=develop&service=github)](https://coveralls.io/github/priestjim/gen_rpc?branch=develop)
-- Issues: [![GitHub issues](https://img.shields.io/github/issues/priestjim/gen_rpc.svg)](https://github.com/priestjim/gen_rpc/issues)
-- License: [![GitHub license](https://img.shields.io/badge/license-Apache%202-blue.svg)](https://raw.githubusercontent.com/priestjim/gen_rpc/master/LICENSE)
 - [Erlang Factory 2016 Talk](https://www.youtube.com/watch?feature=player_embedded&v=xiPnLACtNeo)
 
 ## Build Dependencies
@@ -30,7 +25,7 @@ Getting started with `gen_rpc` is easy. First, add the appropriate dependency li
 
 ```erlang
 {deps, [
-    {gen_rpc, {git, "https://github.com/priestjim/gen_rpc.git", {branch, "master"}}}
+    {gen_rpc, {git, "https://github.com/emqx/gen_rpc.git", {branch, "master"}}}
 ]}.
 ```
 

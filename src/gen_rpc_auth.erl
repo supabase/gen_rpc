@@ -157,6 +157,9 @@ authenticate_client_cr(Driver, Socket, Data) ->
                 Result = stage4(ServerChallenge, RecvPacket),
                 ?tp(debug, gen_rpc_authentication_stage, #{stage => 4, socket => Socket, peer => Peer, result => Result}),
                 Result;
+            {error, ?BADNODE} = Error ->
+                send(Driver, Socket, term_to_binary(Error), challenge_error),
+                Error;
             Error ->
                 Error
         end
@@ -191,9 +194,11 @@ authenticate_server_insecure(Driver, _Node, Socket) ->
                          %% Just another quirk of the old auth process...
                          erlang:term_to_binary({gen_rpc_authenticate_connection, node(), Cookie})
                  end,
+        ?tp(gen_rpc_auth_server_insecure_send, #{socket => Socket}),
         send(Driver, Socket, Packet, insecure_cookie),
         %% Wait for the reply:
         RecvPacket = recv(Driver, Socket, insecure_response),
+        ?tp(gen_rpc_auth_server_insecure_recv, #{socket => Socket, response => RecvPacket}),
         try erlang:binary_to_term(RecvPacket, [safe]) of
             gen_rpc_connection_authenticated ->
                 ?log(debug, "event=connection_authenticated socket=\"~s\"",
@@ -348,6 +353,7 @@ stage2(Secret, Packet) ->
                     %% Old style of challenge packet that doesn't
                     %% include the node name. We just hope the client
                     %% knows where it's going:
+                    ?tp(gen_rpc_auth_cr_v1_fallback, #{}),
                     {ok, make_cr(Secret, Challenge)};
                 {_, <<Size:?NODE_SIZE_BITS, NodeBin:Size/bytes, _/binary>>} ->
                     case NodeBin =:= atom_to_binary(node(), utf8) of
@@ -390,8 +396,8 @@ make_c(Node) ->
     Part1 = erlang:term_to_binary(#gen_rpc_authenticate_c{challenge = Challenge}),
     Part2 = atom_to_binary(Node, utf8),
     Size = size(Part2),
-    %% Node name should be at most 255 bytes in length, but it may
-    %% include utf8 characters, which are at most 4 bytes in size.
+    %% Node name should be at most 255 characters in length, but it
+    %% may include utf8 characters, which are at most 4 bytes in size.
     %% That give us maximum binary size of 1024 bytes, that should fit
     %% in 10 bits. So two bytes should be enough to encode the `Size':
     true = Size < (1 bsl ?NODE_SIZE_BITS), % assert
@@ -416,6 +422,8 @@ check_cr(Secret, MyChallenge, Packet) ->
                 false ->
                     {error, ?UNAUTHORIZED}
             end;
+        {error, ?BADNODE} = Error ->
+            Error;
         _Badarg ->
             {error, ?BADPACKET}
     catch

@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright (c) 2015-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%% Copyright (c) 2015-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 -module(gen_rpc_test_helper).
@@ -11,6 +11,8 @@
 %%% CT Macros
 -include_lib("test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+-compile(nowarn_deprecated_function). %% Silence the warnings about slave module
 
 %%% Public API
 -export([start_distribution/1,

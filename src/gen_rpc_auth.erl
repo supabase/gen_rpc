@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -39,15 +39,18 @@
 -type packet() :: binary().
 
 %% Packets
+%% Client challenge:
 -record(gen_rpc_authenticate_c,
         { challenge :: challenge()
         }).
 
+%% Server response + client challenge
 -record(gen_rpc_authenticate_cr,
         { response  :: binary()
         , challenge :: challenge()
         }).
 
+%% Client response to the challenge:
 -record(gen_rpc_authenticate_r,
         { response  :: binary()
         }).
@@ -56,9 +59,14 @@
 
 -define(BADPACKET, {badrpc, invalid_message}).
 
+-define(BADNODE, {badrpc, badnode}). %% Target node name doesn't match the expected node name
+
 -type auth_error() :: {badtcp, _}          %% Network errors
                     | ?BADPACKET           %% Bad packet
-                    | ?UNAUTHORIZED.       %% Bad cookie
+                    | ?UNAUTHORIZED        %% Bad cookie
+                    | ?BADNODE.            %% Tried to connect to a wrong node
+
+-define(NODE_SIZE_BITS, 16).
 
 %%================================================================================
 %% API
@@ -70,13 +78,13 @@
               | {unreachable, _Reason}.
 connect_with_auth(Driver, Node, Port) ->
     Fallback = insecure_fallback_allowed(),
-    case connect_with_auth(Driver, Node, Port, fun authenticate_server_cr/2) of
+    case connect_with_auth(Driver, Node, Port, fun authenticate_server_cr/3) of
         {ok, Socket} ->
             {ok, Socket};
         Err when Fallback, Err =:= {error, {badtcp, closed}} orelse
                            Err =:= {error, ?UNAUTHORIZED} ->
             ?tp(warning, gen_rpc_insecure_fallback, #{peer => {Node, Port}, role => client}),
-            connect_with_auth(Driver, Node, Port, fun authenticate_server_insecure/2);
+            connect_with_auth(Driver, Node, Port, fun authenticate_server_insecure/3);
         Result ->
             Result
     end.
@@ -104,12 +112,12 @@ authenticate_client(Driver, Socket, Peer) ->
 %% Challenge-response
 %%================================================================================
 
--spec authenticate_server_cr(module(), port()) -> ok | {error, auth_error()}.
-authenticate_server_cr(Driver, Socket) ->
+-spec authenticate_server_cr(module(), node(), port()) -> ok | {error, auth_error()}.
+authenticate_server_cr(Driver, RemoteNode, Socket) ->
     Peer = Driver:get_peer(Socket),
     try
         %% Send challenge:
-        {ClientChallenge, Packet} = stage1(),
+        {ClientChallenge, Packet} = stage1(RemoteNode),
         ?tp(debug, gen_rpc_authentication_stage, #{stage => 1, socket => Socket, peer => Peer}),
         send(Driver, Socket, Packet, challenge),
         %% Receive response to our challenge and a new challenge:
@@ -149,6 +157,9 @@ authenticate_client_cr(Driver, Socket, Data) ->
                 Result = stage4(ServerChallenge, RecvPacket),
                 ?tp(debug, gen_rpc_authentication_stage, #{stage => 4, socket => Socket, peer => Peer, result => Result}),
                 Result;
+            {error, ?BADNODE} = Error ->
+                send(Driver, Socket, term_to_binary(Error), challenge_error),
+                Error;
             Error ->
                 Error
         end
@@ -170,8 +181,8 @@ authenticate_client_cr(Driver, Socket, Data) ->
 
 %% TODO: Drop these functions in the next major release
 
--spec authenticate_server_insecure(module(), term()) -> ok | {error, auth_error()}.
-authenticate_server_insecure(Driver, Socket) ->
+-spec authenticate_server_insecure(module(), node(), term()) -> ok | {error, auth_error()}.
+authenticate_server_insecure(Driver, _Node, Socket) ->
     Peer = Driver:get_peer(Socket),
     try
         %% Send cookie to the remote server:
@@ -183,9 +194,11 @@ authenticate_server_insecure(Driver, Socket) ->
                          %% Just another quirk of the old auth process...
                          erlang:term_to_binary({gen_rpc_authenticate_connection, node(), Cookie})
                  end,
+        ?tp(gen_rpc_auth_server_insecure_send, #{socket => Socket}),
         send(Driver, Socket, Packet, insecure_cookie),
         %% Wait for the reply:
         RecvPacket = recv(Driver, Socket, insecure_response),
+        ?tp(gen_rpc_auth_server_insecure_recv, #{socket => Socket, response => RecvPacket}),
         try erlang:binary_to_term(RecvPacket, [safe]) of
             gen_rpc_connection_authenticated ->
                 ?log(debug, "event=connection_authenticated socket=\"~s\"",
@@ -294,13 +307,13 @@ send(Driver, Socket, Packet, Meta) ->
             throw({badtcp, send, Meta, Reason})
     end.
 
--spec connect_with_auth(module(), node(), inet:port(), fun((module(), _Socket) -> ok | {error, auth_error()})) ->
+-spec connect_with_auth(module(), node(), inet:port(), fun((module(), node(), _Socket) -> ok | {error, auth_error()})) ->
           {ok, _Socket} | {error, auth_error()} | {unreachable, _Reason}.
 connect_with_auth(Driver, Node, Port, Fun) ->
     case Driver:connect(Node, Port) of
         {ok, Socket} ->
             ok = Driver:set_send_timeout(Socket, gen_rpc_helper:get_send_timeout(undefined)),
-            case Fun(Driver, Socket) of
+            case Fun(Driver, Node, Socket) of
                 ok ->
                     {ok, Socket};
                 Err ->
@@ -315,9 +328,9 @@ connect_with_auth(Driver, Node, Port, Fun) ->
 %% Challenge-response stages (pure functions)
 %%================================================================================
 
--spec stage1() -> {challenge(), packet()}.
-stage1() ->
-    make_c().
+-spec stage1(node()) -> {challenge(), packet()}.
+stage1(Node) ->
+    make_c(Node).
 
 -spec stage2(packet()) -> {ok, {challenge(), packet()}} | {error, auth_error()}.
 stage2(Packet) ->
@@ -333,9 +346,26 @@ stage4(MyChallenge, Packet) ->
 
 -spec stage2(secret(), packet()) -> {ok, {challenge(), packet()}} | {error, auth_error()}.
 stage2(Secret, Packet) ->
-    try erlang:binary_to_term(Packet, [safe]) of
-        #gen_rpc_authenticate_c{challenge = Challenge} ->
-            {ok, make_cr(Secret, Challenge)};
+    try erlang:binary_to_term(Packet, [safe, used]) of
+        {#gen_rpc_authenticate_c{challenge = Challenge}, Used} ->
+            case split_binary(Packet, Used) of
+                {_, <<>>} ->
+                    %% Old style of challenge packet that doesn't
+                    %% include the node name. We just hope the client
+                    %% knows where it's going:
+                    ?tp(gen_rpc_auth_cr_v1_fallback, #{}),
+                    {ok, make_cr(Secret, Challenge)};
+                {_, <<Size:?NODE_SIZE_BITS, NodeBin:Size/bytes, _/binary>>} ->
+                    case NodeBin =:= atom_to_binary(node(), utf8) of
+                        true ->
+                            {ok, make_cr(Secret, Challenge)};
+                        false ->
+                            {error, ?BADNODE}
+                    end;
+                _ ->
+                    ?log(error, "event=authentication_stage2_invalid_packet packet=~p", [Packet]),
+                    {error, ?BADPACKET}
+            end;
         _Badterm ->
             {error, ?BADPACKET}
     catch
@@ -360,11 +390,18 @@ stage4(Secret, MyChallenge, Packet) ->
 %% Internal pure functions
 %%================================================================================
 
--spec make_c() -> {challenge(), packet()}.
-make_c() ->
+-spec make_c(node()) -> {challenge(), packet()}.
+make_c(Node) ->
     Challenge = rand_bytes(),
-    Term = #gen_rpc_authenticate_c{challenge = Challenge},
-    {Challenge, erlang:term_to_binary(Term)}.
+    Part1 = erlang:term_to_binary(#gen_rpc_authenticate_c{challenge = Challenge}),
+    Part2 = atom_to_binary(Node, utf8),
+    Size = size(Part2),
+    %% Node name should be at most 255 characters in length, but it
+    %% may include utf8 characters, which are at most 4 bytes in size.
+    %% That give us maximum binary size of 1024 bytes, that should fit
+    %% in 10 bits. So two bytes should be enough to encode the `Size':
+    true = Size < (1 bsl ?NODE_SIZE_BITS), % assert
+    {Challenge, <<Part1/binary, Size:?NODE_SIZE_BITS, Part2/binary>>}.
 
 -spec make_cr(secret(), challenge()) -> {challenge(), packet()}.
 make_cr(Secret, Challenge) ->
@@ -385,6 +422,8 @@ check_cr(Secret, MyChallenge, Packet) ->
                 false ->
                     {error, ?UNAUTHORIZED}
             end;
+        {error, ?BADNODE} = Error ->
+            Error;
         _Badarg ->
             {error, ?BADPACKET}
     catch
@@ -468,6 +507,16 @@ get_cookie_atom() ->
 
 -ifdef(TEST).
 
+-spec make_c_v1() -> {challenge(), packet()}.
+make_c_v1() ->
+    Challenge = rand_bytes(),
+    Term = #gen_rpc_authenticate_c{challenge = Challenge},
+    {Challenge, erlang:term_to_binary(Term)}.
+
+-spec stage1_v1() -> {challenge(), packet()}.
+stage1_v1() ->
+    make_c_v1().
+
 rand_bytes_test() ->
     ?assert(is_binary(rand_bytes())).
 
@@ -508,7 +557,7 @@ check_response_fail_test() ->
 auth_flow_ok_prop() ->
     ?FORALL(Secret, binary(),
             begin
-                {ClientChallenge, P1} = stage1(),
+                {ClientChallenge, P1} = stage1(node()),
                 {ok, {ServerChallenge, P2}} = stage2(Secret, P1),
                 {ok, P3} = stage3(Secret, ClientChallenge, P2),
                 ok =:= stage4(Secret, ServerChallenge, P3)
@@ -517,12 +566,30 @@ auth_flow_ok_prop() ->
 auth_flow_ok_test() ->
     ?assert(proper:quickcheck(auth_flow_ok_prop(), 100)).
 
+%% Check normal flow of authentication (same shared secret), but without node name in the first packet
+auth_flow_ok_v1_prop() ->
+    ?FORALL(Secret, binary(),
+            begin
+                {ClientChallenge, P1} = stage1_v1(),
+                {ok, {ServerChallenge, P2}} = stage2(Secret, P1),
+                {ok, P3} = stage3(Secret, ClientChallenge, P2),
+                ok =:= stage4(Secret, ServerChallenge, P3)
+            end).
+
+auth_flow_ok_v1_test() ->
+    ?assert(proper:quickcheck(auth_flow_ok_v1_prop(), 100)).
+
+%% Check exceptional flow when the client tries to connect to a wrong server:
+auth_flow_wrong_server_fail_test() ->
+    {_ClientChallenge, P1} = stage1('badnode@localhost'),
+    ?assertMatch({error, ?BADNODE}, stage2(P1)).
+
 %% Check exceptional flow when the server's secret is incorrect:
 auth_flow_server_fail_prop() ->
     ?FORALL({Secret1, Secret2}, {binary(), binary()},
             ?IMPLIES(Secret1 =/= Secret2,
                      begin
-                         {ClientChallenge, P1} = stage1(),
+                         {ClientChallenge, P1} = stage1(node()),
                          {ok, {_ServerChallenge, P2}} = stage2(Secret1, P1),
                          ?assertMatch({error, _}, stage3(Secret2, ClientChallenge, P2)),
                          true
@@ -531,12 +598,26 @@ auth_flow_server_fail_prop() ->
 auth_flow_server_fail_test() ->
     ?assert(proper:quickcheck(auth_flow_server_fail_prop(), 100)).
 
+%% Check exceptional flow when the server's secret is incorrect (v1):
+auth_flow_server_fail_v1_prop() ->
+    ?FORALL({Secret1, Secret2}, {binary(), binary()},
+            ?IMPLIES(Secret1 =/= Secret2,
+                     begin
+                         {ClientChallenge, P1} = stage1_v1(),
+                         {ok, {_ServerChallenge, P2}} = stage2(Secret1, P1),
+                         ?assertMatch({error, _}, stage3(Secret2, ClientChallenge, P2)),
+                         true
+                     end)).
+
+auth_flow_server_fail_v1_test() ->
+    ?assert(proper:quickcheck(auth_flow_server_fail_v1_prop(), 100)).
+
 %% Check exceptional flow when the client's secret is incorrect:
 auth_flow_client_fail_prop() ->
     ?FORALL({Secret1, Secret2}, {binary(), binary()},
             ?IMPLIES(Secret1 =/= Secret2,
                      begin
-                         {ClientChallenge, P1} = stage1(),
+                         {ClientChallenge, P1} = stage1(node()),
                          {ok, {ServerChallenge, P2}} = stage2(Secret1, P1),
                          {ok, P3} = stage3(Secret1, ClientChallenge, P2),
                          ?assertMatch({error, _}, stage4(Secret2, ServerChallenge, P3)),

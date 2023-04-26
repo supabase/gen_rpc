@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -48,7 +48,7 @@ init_per_suite(Config) ->
                   cd '" ++ DataDir ++ "' &&
                   git clone https://github.com/emqx/gen_rpc.git || true &&
                   cd gen_rpc &&
-                  git checkout '2.8.2' &&
+                  git checkout 'dev-2.8' &&
                   rebar3 compile &&
                   echo 'DONE'"),
     case lists:suffix("DONE\n", Ret) of
@@ -110,12 +110,13 @@ t_challenge_response_ok(Config) ->
        begin
            ok = gen_rpc_test_helper:start_master(Driver),
            ok = gen_rpc_test_helper:start_slave(Driver),
-           ?assertMatch(?SLAVE, gen_rpc:call(?SLAVE, erlang, node, []))
+           ?assertMatch(?SLAVE, gen_rpc:call(?SLAVE, erlang, node, [])),
+           ?assertMatch(?SLAVE, gen_rpc:call({?SLAVE, destination}, erlang, node, []))
        end,
        fun(Trace) ->
                ?assertMatch([], ?of_kind(gen_rpc_insecure_fallback, Trace)),
                Stages = ?of_kind(gen_rpc_authentication_stage, Trace),
-               ?assertMatch([1, 2, 3, 4], ?projection(stage, Stages))
+               ?assertMatch([1, 2, 3, 4, 1, 2, 3, 4], ?projection(stage, Stages))
        end).
 
 %% In this testcase we don't test auth, but the rest of the gen_rpc library.
@@ -194,6 +195,25 @@ t_challenge_response_invalid_cookie_server(Config) ->
                      end),
            ?assertMatch({badrpc, invalid_cookie},
                         gen_rpc:call(?SLAVE, ?MODULE, canary, []))
+       end,
+       [ fun ?MODULE:prop_canary/1
+       , fun ?MODULE:prop_no_fallback/1
+       ]).
+
+%% Invalid client port mapping configuration that points to the wrong node:
+t_challenge_response_invalid_server(Config) ->
+    application:set_env(?APP, port_discovery, manual),
+    Driver = gen_rpc_test_helper:get_driver_from_config(Config),
+    ?check_trace(
+       #{timetrap => 5000},
+       begin
+           ok = gen_rpc_test_helper:start_master(Driver),
+           ok = gen_rpc_test_helper:start_slave(Driver),
+           ?assertMatch({badtcp, closed},
+                        gen_rpc:call(?BAD_NODE, ?MODULE, canary, [])),
+           %% Check with destination:
+           ?assertMatch({badtcp, closed},
+                        gen_rpc:call({?BAD_NODE, foo}, ?MODULE, canary, []))
        end,
        [ fun ?MODULE:prop_canary/1
        , fun ?MODULE:prop_no_fallback/1

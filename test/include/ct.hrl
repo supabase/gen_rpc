@@ -1,6 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
+%%% Copyright 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 
@@ -16,6 +17,8 @@
 -define(SLAVE_PORT, 5370).
 -define(FAKE_NODE, 'fake_node@1.2.3.4').
 
+-define(BAD_NODE, 'badnode@127.0.0.1').
+
 -define(DEFAULT_DRIVER, tcp).
 
 -define(TEST_APPLICATION_ENV, [{sasl, errlog_type, error},
@@ -24,7 +27,8 @@
         {?APP, ssl_server_port, false},
         {?APP, client_config_per_node, {internal, #{
             ?MASTER => ?MASTER_PORT,
-            ?SLAVE => ?SLAVE_PORT
+            ?SLAVE => ?SLAVE_PORT,
+            ?BAD_NODE => ?SLAVE_PORT
         }}},
         {?APP, connect_timeout, 500},
         {?APP, send_timeout, 500}

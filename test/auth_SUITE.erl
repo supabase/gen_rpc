@@ -33,6 +33,9 @@ all() ->
 suite() ->
     [{timetrap, {minutes, 1}}].
 
+old_tags() ->
+    ['2.8.1', '3.0.0', '3.1.0'].
+
 groups() ->
     {Compat, Regular} =
         lists:foldl(
@@ -45,7 +48,7 @@ groups() ->
           end,
           {[], []},
           ?MODULE:module_info(exports)),
-    CompatGroups = [{'compat-suite-2.8.2', [], Compat}, {'compat-suite-3.0.1', [], Compat}],
+    CompatGroups = [{OldTag, [], Compat} || OldTag <- old_tags()],
     [{tcp, [], Regular ++ CompatGroups}, {ssl, [], Regular ++ CompatGroups}].
 
 init_per_suite(Config) ->
@@ -245,19 +248,17 @@ t_compat_old_client_ok(Config) ->
        [fun ?MODULE:prop_fallback/2]).
 
 %% Compatibility (bad cookie)
-t_compat_old_client_invalid_cookie(Config) ->
+t_compat_old_server_invalid_cookie(Config) ->
     Driver = gen_rpc_test_helper:get_driver_from_config(Config),
-    application:set_env(?APP, insecure_auth_fallback_allowed, true),
+    has_fallback(Config) andalso
+        application:set_env(?APP, insecure_auth_fallback_allowed, true),
     ?check_trace(
        #{timetrap => 5000},
        begin
-           application:set_env(?APP, secret_cookie, <<"wrong">>),
+           application:set_env(?APP, secret_cookie, <<"wrong_cookie">>),
            ok = gen_rpc_test_helper:start_master(Driver),
            ok = gen_rpc_test_helper:start_slave(Driver, old_path(Config)),
-           Result = erpc:call(?SLAVE, fun() ->
-                                              gen_rpc:call(?MASTER, erlang, node, [])
-                                      end),
-           ?assertMatch({badrpc, invalid_cookie}, Result),
+           ?assertMatch({badrpc, invalid_cookie}, gen_rpc:call(?SLAVE, ?MODULE, canary, [])),
            Config
        end,
        [ fun ?MODULE:prop_canary/1
@@ -265,34 +266,24 @@ t_compat_old_client_invalid_cookie(Config) ->
        ]).
 
 %% Compatibility (bad cookie)
-t_compat_old_server_invalid_cookie(Config) ->
+t_compat_old_client_invalid_cookie(Config) ->
     Driver = gen_rpc_test_helper:get_driver_from_config(Config),
-    application:set_env(?APP, insecure_auth_fallback_allowed, true),
+    has_fallback(Config) andalso
+        application:set_env(?APP, insecure_auth_fallback_allowed, true),
     ?check_trace(
        #{timetrap => 5000},
        begin
-           application:set_env(?APP, secret_cookie, <<"baaaaaad_cookie">>),
+           application:set_env(?APP, secret_cookie, <<"wrong_cookie">>),
            ok = gen_rpc_test_helper:start_master(Driver),
            ok = gen_rpc_test_helper:start_slave(Driver, old_path(Config)),
-           rpc:call(?SLAVE, application, set_env, [?APP, insecure_auth_fallback_allowed, true]),
-           %% Assuming fallback:
-           case gen_rpc:call(?SLAVE, ?MODULE, canary, []) of
-               {badrpc, invalid_cookie} ->
-                   %% Very old server version use _unsafe_
-                   %% binary_to_term and actually check the cookie
-                   %% atom:
-                   ok;
-               {badtcp, closed} ->
-                   %% Newer servers use safe `binary_to_term', which
-                   %% means they don't return bad cookie error and
-                   %% just treat insecure fallback message with wrong
-                   %% cookie as malformed packet and just close
-                   %% connection. This is also acceptable:
-                   ok
-           end,
+           Result = erpc:call(?SLAVE, fun() ->
+                                              gen_rpc:call(?MASTER, ?MODULE, canary, [])
+                                      end),
+           ?assertMatch({badrpc, invalid_cookie}, Result),
            Config
        end,
        [ fun ?MODULE:prop_canary/1
+       , fun ?MODULE:prop_fallback/2
        ]).
 
 %%% ===================================================
@@ -310,12 +301,11 @@ prop_no_fallback(Trace) ->
     ?assertMatch([], ?of_kind([gen_rpc_insecure_fallback, gen_rpc_auth_cr_v1_fallback], Trace)).
 
 prop_fallback(Config, Trace) ->
-    Tag = proplists:get_value(old_tag, Config),
-    case Tag of
-        'compat-suite-2.8.2' ->
-            ?assertMatch([_|_], ?of_kind([gen_rpc_insecure_fallback], Trace));
-        _ ->
-            ?assertMatch([], ?of_kind([gen_rpc_insecure_fallback], Trace))
+    case has_fallback(Config) of
+        true ->
+            ?assertMatch([_|_], ?of_kind(gen_rpc_insecure_fallback, Trace));
+        false ->
+            true
     end.
 
 old_path(Config) ->
@@ -344,3 +334,8 @@ build_old_rel(Tag, Config) ->
             error(compilation_failed)
     end,
     filename:join(DataDir, "gen_rpc/_build/test/lib/gen_rpc/ebin").
+
+has_fallback(Config) ->
+    %% Insecure fallback can only be triggered by very ancient
+    %% versions, skip it for 3.0+:
+    atom_to_list(proplists:get_value(old_tag, Config)) < "2.99999999".

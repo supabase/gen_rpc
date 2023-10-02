@@ -2,6 +2,14 @@
 
 Below is a non-exhaustive list of changes between `gen_rpc` versions.
 
+## 3.1.2
+
+- Fix peer address format crash ipv6 is in use.
+
+## 3.1.1
+
+- Support ssl ciphers config.
+
 ## 3.1.0
 
 - Add node name to the auth challenge message

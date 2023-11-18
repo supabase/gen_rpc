@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
@@ -30,6 +30,7 @@
          accept/1,
          get_peer/1,
          send/2,
+         send_async/2,
          activate_socket/1,
          recv/3,
          close/1,
@@ -94,6 +95,11 @@ send(Socket, Data) when is_tuple(Socket), is_binary(Data) ->
             ?tp(gen_rpc_driver_send_ok, #{driver => ssl}),
             ok
     end.
+
+-spec send_async(ssl:sslsocket(), binary()) -> ok.
+send_async(Socket, Data) ->
+    %% Not supported for SSL driver
+    send(Socket, Data).
 
 -spec activate_socket(ssl:sslsocket()) -> ok | {error, inet:posix()}.
 activate_socket(Socket) when is_tuple(Socket) ->

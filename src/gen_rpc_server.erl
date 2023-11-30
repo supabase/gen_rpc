@@ -56,10 +56,10 @@ init({Driver}) ->
     case DriverMod:listen(DriverPort) of
         {ok, Socket} ->
             %% Launch a new acceptor with a new accept socket
-            ?log(info, "event=server_setup_successfully driver=~s socket=\"~s\"", [Driver, gen_rpc_helper:socket_to_string(Socket)]),
+            ?log(info, "event=server_setup_successfully driver=~s port=~p socket=\"~s\"", [Driver, DriverPort, gen_rpc_helper:socket_to_string(Socket)]),
             {ok, waiting_for_connection, #state{socket=Socket, driver=Driver, driver_mod=DriverMod}, {next_event,internal,accept}};
         {error, Reason} ->
-            ?log(error, "event=failed_to_setup_server driver=~s reason=\"~p\"", [Driver, Reason]),
+            ?log(error, "event=failed_to_setup_server driver=~s port=~p reason=\"~p\"", [Driver, DriverPort, Reason]),
             {stop, Reason}
     end.
 

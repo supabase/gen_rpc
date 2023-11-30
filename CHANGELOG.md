@@ -2,6 +2,14 @@
 
 Below is a non-exhaustive list of changes between `gen_rpc` versions.
 
+## 3.2.2
+
+- Improve logging. Sever listener error reports port number.
+
+## 3.2.1
+
+- Deleted some hardcoded TLS options
+
 ## 3.2.0
 
 - Add config 'ipv6_only' to support IPv6 only network.

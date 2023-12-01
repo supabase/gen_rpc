@@ -75,8 +75,8 @@ accept(Socket) when is_tuple(Socket) ->
         Error -> Error
     end.
 
--spec send(ssl:sslsocket(), binary()) -> ok | {error, term()}.
-send(Socket, Data) when is_tuple(Socket), is_binary(Data) ->
+-spec send(ssl:sslsocket(), iodata()) -> ok | {error, term()}.
+send(Socket, Data) when is_tuple(Socket) ->
     ?tp(gen_rpc_driver_send, #{data => Data, driver => ssl}),
     case ssl:send(Socket, Data) of
         {error, timeout} ->

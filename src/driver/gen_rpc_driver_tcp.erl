@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
@@ -69,8 +69,8 @@ accept(Socket) when is_port(Socket) ->
 activate_socket(Socket) when is_port(Socket) ->
     inet:setopts(Socket, [{active,true}]).
 
--spec send(port(), binary()) -> ok | {error, term()}.
-send(Socket, Data) when is_port(Socket), is_binary(Data) ->
+-spec send(port(), iodata()) -> ok | {error, term()}.
+send(Socket, Data) when is_port(Socket) ->
     case gen_tcp:send(Socket, Data) of
         {error, timeout} ->
             ?log(error, "event=send_data_failed socket=\"~s\" reason=\"timeout\"", [gen_rpc_helper:socket_to_string(Socket)]),
@@ -83,8 +83,8 @@ send(Socket, Data) when is_port(Socket), is_binary(Data) ->
             ok
     end.
 
--spec send_async(port(), binary()) -> ok | {error, term()}.
-send_async(Socket, Data) when is_port(Socket), is_binary(Data) ->
+-spec send_async(port(), iodata()) -> ok | {error, term()}.
+send_async(Socket, Data) when is_port(Socket) ->
     case send_tcp_data(Socket, Data) of
         {error, Reason} ->
             ?log(error, "event=send_async_failed socket=\"~s\" reason=\"~p\"", [gen_rpc_helper:socket_to_string(Socket), Reason]),

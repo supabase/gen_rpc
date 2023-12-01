@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
@@ -276,7 +276,7 @@ init({Node}) ->
 
 %% This is the actual CALL handler
 handle_call({{call,_M,_F,_A} = PacketTuple, SendTimeout}, Caller, #state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
-    Packet = erlang:term_to_binary({PacketTuple, Caller}),
+    Packet = erlang:term_to_iovec({PacketTuple, Caller}),
     ?log(debug, "message=call event=constructing_call_term driver=~s socket=\"~s\" caller=\"~p\"",
          [Driver, gen_rpc_helper:socket_to_string(Socket), Caller]),
     ok = DriverMod:set_send_timeout(Socket, SendTimeout),
@@ -301,7 +301,7 @@ handle_call(Msg, _Caller, #state{socket=Socket, driver=Driver} = State) ->
 
 %% This is the actual ASYNC CALL handler
 handle_cast({{async_call,_M,_F,_A} = PacketTuple, Caller, Ref}, #state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
-    Packet = erlang:term_to_binary({PacketTuple, {Caller,Ref}}),
+    Packet = erlang:term_to_iovec({PacketTuple, {Caller,Ref}}),
     ?log(debug, "message=async_call event=constructing_async_call_term socket=\"~s\" worker_pid=\"~p\" async_call_ref=\"~p\"",
          [gen_rpc_helper:socket_to_string(Socket), Caller, Ref]),
     ok = DriverMod:set_send_timeout(Socket, undefined),
@@ -421,7 +421,7 @@ send_cast(PacketTuple, #state{socket=Socket, driver=Driver, driver_mod=DriverMod
                               , driver  => Driver
                               , socket  => gen_rpc_helper:socket_to_string(Socket)
                               }),
-    Packet = erlang:term_to_binary(PacketTuple),
+    Packet = erlang:term_to_iovec(PacketTuple),
     ok = DriverMod:set_send_timeout(Socket, SendTimeout),
     case DriverMod:send_async(Socket, Packet) of
         {error, Reason} ->
@@ -443,7 +443,7 @@ send_cast(PacketTuple, #state{socket=Socket, driver=Driver, driver_mod=DriverMod
     end.
 
 send_ping(#state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
-    Packet = erlang:term_to_binary(ping),
+    Packet = erlang:term_to_iovec(ping),
     ok = DriverMod:set_send_timeout(Socket, undefined),
     case DriverMod:send(Socket, Packet) of
         {error, Reason} ->

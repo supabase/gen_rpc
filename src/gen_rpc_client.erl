@@ -91,6 +91,10 @@ call(NodeOrTuple, M, F, A, RecvTimeout) ->
 %% This is the function that all of the above call
 -spec call(node_or_tuple(), atom() | tuple(), atom() | function(), list(), timeout() | undefined, timeout() | undefined) ->
     term() | {badrpc,term()} | {badtcp,term()}.
+call(Node, M, F, A, RecvTimeout, _) when Node =:= node() ->
+    local_call(M, F, A, RecvTimeout);
+call({Node, _}, M, F, A, RecvTimeout, _) when Node =:= node() ->
+    local_call(M, F, A, RecvTimeout);
 call(NodeOrTuple, M, F, A, RecvTimeout, SendTimeout) when ?is_node_or_tuple(NodeOrTuple), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A),
                                          RecvTimeout =:= undefined orelse ?is_timeout(RecvTimeout),
                                          SendTimeout =:= undefined orelse ?is_timeout(SendTimeout) ->
@@ -586,4 +590,30 @@ maybe_start_client(NodeOrTuple) ->
             gen_rpc_dispatcher:start_client(NodeOrTuple);
         Pid ->
             {ok, Pid}
+    end.
+
+%% Bypass the pipeline for local calls.
+%%
+%% Note: this function doesn't support authorization checks and/or
+%% module version checks.
+%%
+%% Note: `call_middleman' returns value by throwing an error... So we
+%% have to suppress dialyzer warning:
+-dialyzer({no_return, [local_call/4]}).
+local_call(M, F, A, undefined) ->
+    local_call(M, F, A, infinity);
+local_call({M, _Version}, F, A, Timeout) ->
+    local_call(M, F, A, Timeout);
+local_call(M, F, A, Timeout) ->
+    {Pid, MRef} = spawn_monitor(fun() ->
+                                        gen_rpc_acceptor:call_middleman(M, F, A)
+                                end),
+    receive
+        {'DOWN', MRef, process, Pid, {call_middleman_result, Reason}} ->
+            Reason;
+        {'DOWN', MRef, process, Pid, Other} ->
+            {badrpc, Other}
+    after Timeout ->
+            erlang:demonitor(MRef, [flush]),
+            {badrpc, timeout}
     end.

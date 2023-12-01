@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
+%%% Copyright 2015, 2023 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 
 -module(remote_SUITE).
@@ -13,6 +13,8 @@
 -include_lib("test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/assert.hrl").
+
+-include("tcp.hrl").
 
 %%% No need to export anything, everything is automatically exported
 %%% as part of the test profile
@@ -111,12 +113,6 @@ interleaved_call(_Config) ->
 
 cast(_Config) ->
     true = gen_rpc:cast(?SLAVE, erlang, timestamp).
-
-cast_anonymous_function(_Config) ->
-    true = gen_rpc:cast(?SLAVE, erlang, apply, [fun() -> os:timestamp() end, []]).
-
-ord_cast_anonymous_function(_Config) ->
-    true = gen_rpc:ordered_cast({?SLAVE, 1}, erlang, apply, [fun() -> os:timestamp() end, []]).
 
 cast_mfa_undef(_Config) ->
     true = gen_rpc:cast(?SLAVE, os, timestamp_undef, []).
@@ -300,6 +296,23 @@ multiple_ordered_casts_test(_Config) ->
                   snabbkaffe:strictly_increasing(?projection(seqno, ?of_kind(do_test_call, Trace)))
           end}
        ] ++ gen_rpc_trace_props:cast_bundle()).
+
+async_call_inexistent_node(_Config) ->
+    YieldKey1 = gen_rpc:async_call(?FAKE_NODE, os, timestamp, []),
+    {badrpc, _} = gen_rpc:yield(YieldKey1),
+    YieldKey2 = gen_rpc:async_call(?FAKE_NODE, os, timestamp, []),
+    {value, {badrpc, _}} = gen_rpc:nb_yield(YieldKey2, 10000).
+
+call_anonymous_function(_Config) ->
+    {module, _} = gen_rpc:call(?SLAVE, code, ensure_loaded, [?MODULE]),
+    {_,"\"call_anonymous_function\""} = gen_rpc:call(?SLAVE, erlang, apply,[fun(A) -> {self(), io_lib:print(A)} end,
+                                                     ["call_anonymous_function"]]).
+
+driver_stub(_Config) ->
+    ok = gen_rpc_driver:stub().
+
+client_config_stub(_Config) ->
+    ok = gen_rpc_client_config:stub().
 
 %%% ===================================================
 %%% Auxiliary functions for test cases

@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 
@@ -91,15 +91,15 @@ call_with_receive_timeout(_Config) ->
 call_with_worker_kill(_Config) ->
     {badrpc, killed} = gen_rpc:call(?MASTER, timer, kill_after, [0]).
 
-call_module_version_check_success(_Config) ->
-    stub_function = gen_rpc:call(?MASTER, {gen_rpc_test_helper, "1.0.0"}, stub_function, []).
+%% call_module_version_check_success(_Config) ->
+%%     stub_function = gen_rpc:call(?MASTER, {gen_rpc_test_helper, "1.0.0"}, stub_function, []).
 
-call_module_version_check_incompatible(_Config) ->
-    {badrpc, incompatible} = gen_rpc:call(?MASTER, {gen_rpc_test_helper, "X.Y.Z"}, stub_function, []).
+%% call_module_version_check_incompatible(_Config) ->
+%%     {badrpc, incompatible} = gen_rpc:call(?MASTER, {gen_rpc_test_helper, "X.Y.Z"}, stub_function, []).
 
-call_module_version_check_invalid(_Config) ->
-    {badrpc, incompatible} = gen_rpc:call(?MASTER, {gen_rpc_test_helper1, "X.Y.Z"}, stub_function, []),
-    {badrpc, incompatible} = gen_rpc:call(?MASTER, {rpc, 1}, cast, []).
+%% call_module_version_check_invalid(_Config) ->
+%%     {badrpc, incompatible} = gen_rpc:call(?MASTER, {gen_rpc_test_helper1, "X.Y.Z"}, stub_function, []),
+%%     {badrpc, incompatible} = gen_rpc:call(?MASTER, {rpc, 1}, cast, []).
 
 interleaved_call(_Config) ->
     %% Spawn 3 consecutive processes that execute gen_rpc:call
@@ -250,30 +250,21 @@ server_inactivity_timeout(_Config) ->
     %% Lookup the client named process, shouldn't be there
     [] = supervisor:which_children(gen_rpc_acceptor_sup).
 
-random_tcp_close(_Config) ->
-    {_Mega, _Sec, _Micro} = gen_rpc:call(?MASTER, os, timestamp),
-    [{_,AccPid,_,_}] = supervisor:which_children(gen_rpc_acceptor_sup),
-    true = erlang:exit(AccPid, normal),
-    ok = timer:sleep(500), % Give some time to the supervisor to kill the children
-    [] = gen_rpc:nodes(),
-    [] = supervisor:which_children(gen_rpc_acceptor_sup),
-    [] = supervisor:which_children(gen_rpc_client_sup).
+%% rpc_module_whitelist(_Config) ->
+%%     ok = application:set_env(?APP, rpc_module_list, [erlang, os]),
+%%     ok = application:set_env(?APP, rpc_module_control, whitelist),
+%%     {_Mega, _Sec, _Micro} = gen_rpc:call(?MASTER, os, timestamp),
+%%     ?MASTER = gen_rpc:call(?MASTER, erlang, node),
+%%     {badrpc, unauthorized} = gen_rpc:call(?MASTER, application, which_applications).
 
-rpc_module_whitelist(_Config) ->
-    ok = application:set_env(?APP, rpc_module_list, [erlang, os]),
-    ok = application:set_env(?APP, rpc_module_control, whitelist),
-    {_Mega, _Sec, _Micro} = gen_rpc:call(?MASTER, os, timestamp),
-    ?MASTER = gen_rpc:call(?MASTER, erlang, node),
-    {badrpc, unauthorized} = gen_rpc:call(?MASTER, application, which_applications).
-
-rpc_module_blacklist(_Config) ->
-    ok = application:set_env(?APP, rpc_module_list, [erlang, os]),
-    ok = application:set_env(?APP, rpc_module_control, blacklist),
-    {badrpc, unauthorized} = gen_rpc:call(?MASTER, os, timestamp),
-    {badrpc, unauthorized} = gen_rpc:call(?MASTER, erlang, node),
-    abcast = gen_rpc:abcast([?MASTER], init, {stop, stop}),
-    {[], [?MASTER]} = gen_rpc:sbcast([?MASTER], init, {stop, stop}),
-    60000 = gen_rpc:call(?MASTER, timer, seconds, [60]).
+%% rpc_module_blacklist(_Config) ->
+%%     ok = application:set_env(?APP, rpc_module_list, [erlang, os]),
+%%     ok = application:set_env(?APP, rpc_module_control, blacklist),
+%%     {badrpc, unauthorized} = gen_rpc:call(?MASTER, os, timestamp),
+%%     {badrpc, unauthorized} = gen_rpc:call(?MASTER, erlang, node),
+%%     abcast = gen_rpc:abcast([?MASTER], init, {stop, stop}),
+%%     {[], [?MASTER]} = gen_rpc:sbcast([?MASTER], init, {stop, stop}),
+%%     60000 = gen_rpc:call(?MASTER, timer, seconds, [60]).
 
 driver_stub(_Config) ->
     ok = gen_rpc_driver:stub().

@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
@@ -267,7 +267,7 @@ call_worker(CallType, M, F, A, Caller, Socket, Driver, DriverMod) ->
 reply_call_result({CallType,_Caller,_Res} = Payload, Socket, Driver, DriverMod) ->
     ?log(debug, "message=call_reply event=call_reply_received driver=~s socket=\"~s\" type=~s",
          [Driver, gen_rpc_helper:socket_to_string(Socket), CallType]),
-    case DriverMod:send(Socket, erlang:term_to_binary(Payload)) of
+    case DriverMod:send(Socket, erlang:term_to_iovec(Payload)) of
         ok ->
             ?log(debug, "message=call_reply event=call_reply_sent driver=~s socket=\"~s\"", [Driver, gen_rpc_helper:socket_to_string(Socket)]);
         {error, Reason} ->

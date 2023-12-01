@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
@@ -28,6 +28,7 @@
         accept/1,
         get_peer/1,
         send/2,
+        send_async/2,
         activate_socket/1,
         recv/3,
         close/1,
@@ -68,8 +69,8 @@ accept(Socket) when is_port(Socket) ->
 activate_socket(Socket) when is_port(Socket) ->
     inet:setopts(Socket, [{active,true}]).
 
--spec send(port(), binary()) -> ok | {error, term()}.
-send(Socket, Data) when is_port(Socket), is_binary(Data) ->
+-spec send(port(), iodata()) -> ok | {error, term()}.
+send(Socket, Data) when is_port(Socket) ->
     case gen_tcp:send(Socket, Data) of
         {error, timeout} ->
             ?log(error, "event=send_data_failed socket=\"~s\" reason=\"timeout\"", [gen_rpc_helper:socket_to_string(Socket)]),
@@ -81,6 +82,29 @@ send(Socket, Data) when is_port(Socket), is_binary(Data) ->
             ?log(debug, "event=send_data_succeeded socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
             ok
     end.
+
+-spec send_async(port(), iodata()) -> ok | {error, term()}.
+send_async(Socket, Data) when is_port(Socket) ->
+    case send_tcp_data(Socket, Data) of
+        {error, Reason} ->
+            ?log(error, "event=send_async_failed socket=\"~s\" reason=\"~p\"", [gen_rpc_helper:socket_to_string(Socket), Reason]),
+            {error, {badtcp,Reason}};
+        ok ->
+            ?log(debug, "event=send_async_succeeded socket=\"~s\"", [gen_rpc_helper:socket_to_string(Socket)]),
+            ok
+    end.
+
+-if(?OTP_RELEASE >= 26).
+send_tcp_data(Sock, Data) ->
+    gen_tcp:send(Sock, Data).
+-else.
+send_tcp_data(Sock, Data) ->
+    try erlang:port_command(Sock, Data) of
+        true -> ok
+    catch
+        error:badarg -> {error, einval}
+    end.
+-endif.
 
 -spec recv(gen_tcp:socket(), non_neg_integer(), timeout()) -> {ok, binary()} | {error, _}.
 recv(Socket, Length, Timeout) ->

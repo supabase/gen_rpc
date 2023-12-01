@@ -1,7 +1,7 @@
 %%% -*-mode:erlang;coding:utf-8;tab-width:4;c-basic-offset:4;indent-tabs-mode:()-*-
 %%% ex: set ft=erlang fenc=utf-8 sts=4 ts=4 sw=4 et:
 %%%
-%%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%% Copyright 2015 Panagiotis Papadomitsos. All Rights Reserved.
 %%%
 %%% Original concept inspired and some code copied from
@@ -91,6 +91,10 @@ call(NodeOrTuple, M, F, A, RecvTimeout) ->
 %% This is the function that all of the above call
 -spec call(node_or_tuple(), atom() | tuple(), atom() | function(), list(), timeout() | undefined, timeout() | undefined) ->
     term() | {badrpc,term()} | {badtcp,term()}.
+call(Node, M, F, A, RecvTimeout, _) when Node =:= node() ->
+    local_call(M, F, A, RecvTimeout);
+call({Node, _}, M, F, A, RecvTimeout, _) when Node =:= node() ->
+    local_call(M, F, A, RecvTimeout);
 call(NodeOrTuple, M, F, A, RecvTimeout, SendTimeout) when ?is_node_or_tuple(NodeOrTuple), is_atom(M) orelse is_tuple(M), is_atom(F), is_list(A),
                                          RecvTimeout =:= undefined orelse ?is_timeout(RecvTimeout),
                                          SendTimeout =:= undefined orelse ?is_timeout(SendTimeout) ->
@@ -276,7 +280,7 @@ init({Node}) ->
 
 %% This is the actual CALL handler
 handle_call({{call,_M,_F,_A} = PacketTuple, SendTimeout}, Caller, #state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
-    Packet = erlang:term_to_binary({PacketTuple, Caller}),
+    Packet = erlang:term_to_iovec({PacketTuple, Caller}),
     ?log(debug, "message=call event=constructing_call_term driver=~s socket=\"~s\" caller=\"~p\"",
          [Driver, gen_rpc_helper:socket_to_string(Socket), Caller]),
     ok = DriverMod:set_send_timeout(Socket, SendTimeout),
@@ -301,11 +305,11 @@ handle_call(Msg, _Caller, #state{socket=Socket, driver=Driver} = State) ->
 
 %% This is the actual ASYNC CALL handler
 handle_cast({{async_call,_M,_F,_A} = PacketTuple, Caller, Ref}, #state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
-    Packet = erlang:term_to_binary({PacketTuple, {Caller,Ref}}),
+    Packet = erlang:term_to_iovec({PacketTuple, {Caller,Ref}}),
     ?log(debug, "message=async_call event=constructing_async_call_term socket=\"~s\" worker_pid=\"~p\" async_call_ref=\"~p\"",
          [gen_rpc_helper:socket_to_string(Socket), Caller, Ref]),
     ok = DriverMod:set_send_timeout(Socket, undefined),
-    case DriverMod:send(Socket, Packet) of
+    case DriverMod:send_async(Socket, Packet) of
         {error, Reason} ->
             ?log(error, "message=async_call event=transmission_failed driver=~s socket=\"~s\" worker_pid=\"~p\" call_ref=\"~p\" reason=\"~p\"",
                  [Driver, gen_rpc_helper:socket_to_string(Socket), Caller, Ref, Reason]),
@@ -392,6 +396,12 @@ handle_info({keepalive, check}, #state{driver=Driver, keepalive=KeepAlive} = Sta
             {stop, Reason, State}
     end;
 
+handle_info({inet_reply, _Socket, ok}, State) ->
+    {noreply, State};
+
+handle_info({inet_reply, _Socket, {error, Reason}}, State) ->
+    {stop, {async_send_error, Reason}, State};
+
 %% Catch-all for info - our protocol is strict so die!
 handle_info(Msg, #state{socket=Socket, driver=Driver} = State) ->
     ?log(error, "event=uknown_message_received driver=~s socket=\"~s\" message=\"~p\" action=stopping",
@@ -415,9 +425,9 @@ send_cast(PacketTuple, #state{socket=Socket, driver=Driver, driver_mod=DriverMod
                               , driver  => Driver
                               , socket  => gen_rpc_helper:socket_to_string(Socket)
                               }),
-    Packet = erlang:term_to_binary(PacketTuple),
+    Packet = erlang:term_to_iovec(PacketTuple),
     ok = DriverMod:set_send_timeout(Socket, SendTimeout),
-    case DriverMod:send(Socket, Packet) of
+    case DriverMod:send_async(Socket, Packet) of
         {error, Reason} ->
             ?tp(error, gen_rpc_error, #{ error  => transmission_failed
                                        , packet => cast
@@ -437,7 +447,7 @@ send_cast(PacketTuple, #state{socket=Socket, driver=Driver, driver_mod=DriverMod
     end.
 
 send_ping(#state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
-    Packet = erlang:term_to_binary(ping),
+    Packet = erlang:term_to_iovec(ping),
     ok = DriverMod:set_send_timeout(Socket, undefined),
     case DriverMod:send(Socket, Packet) of
         {error, Reason} ->
@@ -580,4 +590,30 @@ maybe_start_client(NodeOrTuple) ->
             gen_rpc_dispatcher:start_client(NodeOrTuple);
         Pid ->
             {ok, Pid}
+    end.
+
+%% Bypass the pipeline for local calls.
+%%
+%% Note: this function doesn't support authorization checks and/or
+%% module version checks.
+%%
+%% Note: `call_middleman' returns value by throwing an error... So we
+%% have to suppress dialyzer warning:
+-dialyzer({no_return, [local_call/4]}).
+local_call(M, F, A, undefined) ->
+    local_call(M, F, A, infinity);
+local_call({M, _Version}, F, A, Timeout) ->
+    local_call(M, F, A, Timeout);
+local_call(M, F, A, Timeout) ->
+    {Pid, MRef} = spawn_monitor(fun() ->
+                                        gen_rpc_acceptor:call_middleman(M, F, A)
+                                end),
+    receive
+        {'DOWN', MRef, process, Pid, {call_middleman_result, Reason}} ->
+            Reason;
+        {'DOWN', MRef, process, Pid, Other} ->
+            {badrpc, Other}
+    after Timeout ->
+            erlang:demonitor(MRef, [flush]),
+            {badrpc, timeout}
     end.

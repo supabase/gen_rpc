@@ -328,7 +328,9 @@ handle_cast(M, F, A, Ordered, #state{socket=Socket, driver=Driver, peer=Peer, co
             case ModVsnAllowed of
                 true ->
                     ?tp(debug, gen_rpc_exec_cast,
-                        #{ mfa    => {M, F, A}
+                        #{ module => M
+                         , function => F
+                         , arity => length(A)
                          , socket => gen_rpc_helper:socket_to_string(Socket)
                          , peer   => gen_rpc_helper:peer_to_string(Peer)
                          }),

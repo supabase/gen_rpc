@@ -56,7 +56,6 @@ start_node() {
     docker exec "${NAME}" bash -c 'chmod 600 ~/.erlang.cookie'
     docker exec -d "${NAME}" epmd -daemon
     PROJ_ROOT="$(docker exec "${NAME}" pwd | tr -d '\r')"
-    local SCRIPT_FILE='test/integration/set_app_env.escript'
     if [ "$IS_CT" = 'no_dont_run_ct' ]; then
         docker exec -d \
             -e PROJ_ROOT="${PROJ_ROOT}" \
@@ -64,7 +63,7 @@ start_node() {
             -e TEST_WITH_IPV6ONLY="${V6ONLY}" \
             -e TEST_WITH_SSL="${SSL}" \
             "${NAME}" \
-            bash -c "rebar3 as test shell --name gen_rpc@${NAME} --script ${SCRIPT_FILE} > shell.log"
+            bash -c "./test/integration/start-node-as-peer.sh gen_rpc@${NAME} > ${NAME}.log"
     else
         docker exec \
             -e PROJ_ROOT="${PROJ_ROOT}" \
@@ -85,9 +84,18 @@ run_ct() {
     start_node 1 'yes_run_ct'
 }
 
+dump_peer_logs() {
+    local name
+    for idx in $(seq 2 "${NUM_OF_NODES}"); do
+        echo ">>>>>>>>>> logs from $name"
+        name="n${idx}.${DOCKER_NET}"
+        docker exec "$name" cat "${name}.log"
+    done
+}
+
 if [ "$RUN_CT" = 'true' ]; then
     trap destroy EXIT
-    run_ct
+    run_ct || dump_peer_logs
 else
     ## keep the nodes running so we can manually attach to the nodes
     destroy

@@ -178,6 +178,8 @@ and pass them as the node list in the multi-node function.
 
 - `ipv6_only`: Boolean (default = false) to force server and client to use ipv6. This config only takes effect when `socket_ip` is a 8-tuple (IPv6).
 
+- `acceptor_socket_active_n`: Integer (default = 100) for RPC acceptor flow control.
+
 ## Logging
 
 `gen_rpc` uses [hut](https://github.com/tolbrino/hut) for logging. This allows the developer to integrate the logging library of their choice by providing the appropriate definition in their `rebar.config`. The default logging facility of `hut` is SASL.

@@ -55,7 +55,7 @@ init_integration_test_config() ->
             io:format(user, "===< Setting 'ipv6_only' to 'true'~n", []),
             ok = set_env(ipv6_only, true);
         _ ->
-            io:format(user, "===< Not forcing 'ipv6_only'", [])
+            io:format(user, "===< Not forcing 'ipv6_only'~n", [])
     end,
     case os:getenv("TEST_WITH_SSL") of
         "true" ->

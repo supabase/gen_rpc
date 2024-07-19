@@ -86,7 +86,9 @@
         %% to force IPv6 only, set 'ipv6_only' option to 'true'
         {socket_ip, {0,0,0,0}},
         %% NOTE: this option has no effect unless 'socket_ip' is an IPv6 interface.
-        {ipv6_only, false}
+        {ipv6_only, false},
+        %% ActiveN option for RPC acceptor socket
+        {acceptor_socket_active_n, 100}
     ]},
     {modules, []}]
 }.

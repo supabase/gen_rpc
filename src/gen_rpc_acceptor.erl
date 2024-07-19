@@ -29,6 +29,8 @@
         control :: whitelist | blacklist | disabled,
         list :: sets:set() | undefined}).
 
+-define(ACTIVE_N, application:get_env(?APP, acceptor_socket_active_n, 100)).
+
 %%% Ignore dialyzer warning for call_middleman
 %%% The non-local return is deliberate
 -dialyzer([{no_return, [call_middleman/3]}]).
@@ -94,6 +96,10 @@ waiting_for_socket({call,From}, {socket_ready,Socket}, #state{driver_mod=DriverM
     ok = gen_statem:reply(From, ok),
     wait_for_auth(State#state{socket = Socket}).
 
+waiting_for_data(info, {Passive, Socket},
+                 #state{socket=Socket, driver_mod=DriverMod}) when Passive =:= tcp_passive orelse Passive =:= ssl_passive ->
+    ok = DriverMod:activate_socket(Socket, ?ACTIVE_N),
+    keep_state_and_data;
 waiting_for_data(info, {Driver,Socket,Data},
                  #state{socket=Socket, driver=Driver, driver_mod=DriverMod, peer=Peer, control=Control, list=List} = State) ->
     ?tp(gen_rpc_acceptor_receive, #{ socket => gen_rpc_helper:socket_to_string(Socket)
@@ -237,7 +243,7 @@ wait_for_auth(#state{socket=Socket, driver=Driver, driver_mod=DriverMod, peer=Pe
             ok = DriverMod:close(Socket),
             {stop, Reason, State};
         ok ->
-            case DriverMod:activate_socket(Socket) of
+            case DriverMod:activate_socket(Socket, ?ACTIVE_N) of
                 ok ->
                     {next_state, waiting_for_data, State};
                 {error, _Posix} ->

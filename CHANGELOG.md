@@ -2,6 +2,10 @@
 
 Below is a non-exhaustive list of changes between `gen_rpc` versions.
 
+## 3.4.0
+
+- Back-pressure towards sender by `{active, 100}` socket option in acceptor side.
+
 ## 3.2.2
 
 - Improve logging. Sever listener error reports port number.

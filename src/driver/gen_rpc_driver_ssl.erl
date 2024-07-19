@@ -32,6 +32,7 @@
          send/2,
          send_async/2,
          activate_socket/1,
+         activate_socket/2,
          recv/3,
          close/1,
          copy_sock_opts/2,
@@ -104,6 +105,10 @@ send_async(Socket, Data) ->
 -spec activate_socket(ssl:sslsocket()) -> ok | {error, inet:posix()}.
 activate_socket(Socket) when is_tuple(Socket) ->
     ssl:setopts(Socket, [{active, true}]).
+
+-spec activate_socket(ssl:sslsocket(), pos_integer()) -> ok | {error, inet:posix()}.
+activate_socket(Socket, N) when is_tuple(Socket) ->
+    ssl:setopts(Socket, [{active, N}]).
 
 -spec recv(ssl:sslsocket(), non_neg_integer(), timeout()) -> {ok, binary()} | {error, _}.
 recv(Socket, Length, Timeout) ->

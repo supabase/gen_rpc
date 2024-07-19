@@ -30,6 +30,7 @@
         send/2,
         send_async/2,
         activate_socket/1,
+        activate_socket/2,
         recv/3,
         close/1,
         copy_sock_opts/2,
@@ -67,7 +68,11 @@ accept(Socket) when is_port(Socket) ->
 
 -spec activate_socket(port()) -> ok | {error, inet:posix()}.
 activate_socket(Socket) when is_port(Socket) ->
-    inet:setopts(Socket, [{active,true}]).
+    inet:setopts(Socket, [{active, true}]).
+
+-spec activate_socket(port(), pos_integer()) -> ok | {error, inet:posix()}.
+activate_socket(Socket, N) when is_port(Socket) ->
+    inet:setopts(Socket, [{active, N}]).
 
 -spec send(port(), iodata()) -> ok | {error, term()}.
 send(Socket, Data) when is_port(Socket) ->

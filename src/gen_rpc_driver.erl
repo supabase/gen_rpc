@@ -13,7 +13,11 @@
 
 -callback accept(term()) -> {ok, inet:socket() | ssl:sslsocket()} | {error, term()}.
 
+%% Called by rpc client which should receive replies ASAP.
 -callback activate_socket(term()) -> ok | {error, term()}.
+
+%% Called by rpc acceptor which may need to pose back-pressure towards client.
+-callback activate_socket(term(), pos_integer()) -> ok | {error, term()}.
 
 -callback recv(term(), non_neg_integer(), timeout()) -> {ok, binary()} | {error, _Reason}.
 

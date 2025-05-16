@@ -346,7 +346,8 @@ handle_info({{sbcast,_Name,_Msg,_Caller} = PacketTuple, undefined}, State) ->
 %% Handle any TCP packet coming in
 handle_info({Driver,Socket,Data}, #state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
     MessageFromWire = erlang:binary_to_term(Data),
-    ?tp(gen_rpc_client_receive_message, #{ socket => gen_rpc_helper:socket_to_string(Socket)
+    ?tp_ignore_side_effects_in_prod(
+        gen_rpc_client_receive_message, #{ socket => gen_rpc_helper:socket_to_string(Socket)
                                          , packet => MessageFromWire
                                          }),
     _Reply = case MessageFromWire of
@@ -420,7 +421,8 @@ terminate(_Reason, #state{keepalive=KeepAlive}) ->
 %%% Private functions
 %%% ===================================================
 send_cast(PacketTuple, #state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State, SendTimeout, Activate) ->
-    ?tp(gen_rpc_send_packet, #{ packet  => PacketTuple
+    ?tp_ignore_side_effects_in_prod(
+        gen_rpc_send_packet, #{ packet  => PacketTuple
                               , timeout => SendTimeout
                               , driver  => Driver
                               , socket  => gen_rpc_helper:socket_to_string(Socket)
@@ -465,7 +467,8 @@ send_ping(#state{socket=Socket, driver=Driver, driver_mod=DriverMod} = State) ->
 cast_worker(NodeOrTuple, Cast, Ret, SendTimeout) ->
     %% Create a unique name for the client because we register as such
     PidName = ?NAME(NodeOrTuple),
-    ?tp(gen_rpc_input, #{ input => Cast
+    ?tp_ignore_side_effects_in_prod(
+        gen_rpc_input, #{ input => Cast
                         , target => NodeOrTuple
                         , sendto => SendTimeout
                         , pid => PidName
@@ -484,7 +487,8 @@ cast_worker(NodeOrTuple, Cast, Ret, SendTimeout) ->
                     Ret
             end;
         Pid ->
-            ?tp(debug, gen_rpc_client_process_found, #{pid => Pid, target => NodeOrTuple}),
+            ?tp_ignore_side_effects_in_prod(
+                gen_rpc_client_process_found, #{pid => Pid, target => NodeOrTuple}),
             erlang:send(Pid, {Cast, SendTimeout}),
             Ret
     end.

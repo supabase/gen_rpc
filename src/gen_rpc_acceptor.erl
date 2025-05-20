@@ -102,7 +102,8 @@ waiting_for_data(info, {Passive, Socket},
     keep_state_and_data;
 waiting_for_data(info, {Driver,Socket,Data},
                  #state{socket=Socket, driver=Driver, driver_mod=DriverMod, peer=Peer, control=Control, list=List} = State) ->
-    ?tp(gen_rpc_acceptor_receive, #{ socket => gen_rpc_helper:socket_to_string(Socket)
+    ?tp_ignore_side_effects_in_prod(
+        gen_rpc_acceptor_receive, #{ socket => gen_rpc_helper:socket_to_string(Socket)
                                    , peer   => Peer
                                    , packet => catch erlang:binary_to_term(Data)
                                    }),
@@ -333,13 +334,14 @@ handle_cast(M, F, A, Ordered, #state{socket=Socket, driver=Driver, peer=Peer, co
         true ->
             case ModVsnAllowed of
                 true ->
-                    ?tp(debug, gen_rpc_exec_cast,
-                        #{ module => M
-                         , function => F
-                         , arity => length(A)
-                         , socket => gen_rpc_helper:socket_to_string(Socket)
-                         , peer   => gen_rpc_helper:peer_to_string(Peer)
-                         }),
+                    ?slog(debug,
+                          #{ msg => gen_rpc_exec_cast
+                           , module => M
+                           , function => F
+                           , arity => length(A)
+                           , socket => gen_rpc_helper:socket_to_string(Socket)
+                           , peer   => gen_rpc_helper:peer_to_string(Peer)
+                           }),
                     exec_cast(RealM, F, A, Ordered);
                 false ->
                     ?log(debug, "event=incompatible_module_version driver=~s socket=\"~s\" module=~s",[Driver, gen_rpc_helper:socket_to_string(Socket), RealM])

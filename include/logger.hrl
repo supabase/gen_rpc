@@ -39,5 +39,10 @@
 
 -define(log(Level, Format, Args),
         begin
-          (logger:log(Level,#{},#{report_cb => fun(_) -> {(Format), (Args)} end}))
+          (logger:log(Level,fun(_) -> {(Format), (Args)} end,[]))
+        end).
+
+-define(slog(Level, Report),
+        begin
+          (logger:log(Level,fun(_) -> Report end, []))
         end).

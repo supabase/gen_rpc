@@ -56,7 +56,7 @@ term_to_iovec(Term) ->
   {ok, Compress} = application:get_env(?APP, compress),
   do_term_to_iovec(Term, Compress).
 
-do_term_to_iovec(Term, Compress) when is_integer(Compress), Compress > 0 ->
+do_term_to_iovec(Term, Compress) when is_integer(Compress), Compress >= 1, Compress =< 9 ->
     Size = erlang:external_size(Term),
     {ok, CompressionThreshold} = application:get_env(?APP, compression_threshold),
     case Size > CompressionThreshold of

@@ -202,9 +202,13 @@ t_cr_invalid_server(Config) ->
            ok = gen_rpc_test_helper:start_slave(Driver),
            ?assertMatch({badrpc, badnode},
                         gen_rpc:call(?BAD_NODE, ?MODULE, canary, [])),
+           ?assertMatch({badrpc, badnode},
+                        gen_rpc:call('badnode@8.8.8.8', ?MODULE, canary, [])),
            %% Check with destination:
            ?assertMatch({badrpc, badnode},
-                        gen_rpc:call({?BAD_NODE, foo}, ?MODULE, canary, []))
+                        gen_rpc:call({?BAD_NODE, foo}, ?MODULE, canary, [])),
+           ?assertMatch({badrpc, badnode},
+                        gen_rpc:call({'badnode@8.8.8.8', foo}, ?MODULE, canary, []))
        end,
        [ fun ?MODULE:prop_canary/1
        , fun ?MODULE:prop_no_fallback/1

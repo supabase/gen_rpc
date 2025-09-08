@@ -26,6 +26,9 @@ suite() ->
 init_per_suite(Config) ->
     ok = gen_rpc_test_helper:init_integration_test_config(),
     {ok, _MasterApps} = application:ensure_all_started(?APP),
+    ok = lists:foreach(fun(Node) ->
+        true = net_kernel:connect_node(Node)
+    end, peers()),
     Config.
 
 end_per_suite(_Config) ->
@@ -44,10 +47,10 @@ call(_Config) ->
     Peers = peers(),
     ok = lists:foreach(fun(Node) ->
         {_,_,_} = gen_rpc:call(Node, os, timestamp, [])
-    end, peers()),
+    end, Peers),
     ok = lists:foreach(fun(Node) ->
         Node = gen_rpc:call(Node, erlang, node, [])
-    end, peers()),
+    end, Peers),
     Alive = gen_rpc:nodes(),
     ok = lists:foreach(fun(Node) ->
         true = lists:member(Node, Alive)

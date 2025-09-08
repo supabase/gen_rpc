@@ -43,7 +43,15 @@ stop() ->
 
 -spec start_client(node_or_tuple()) -> {ok, pid()} | {error, any()}.
 start_client(NodeOrTuple) when ?is_node_or_tuple(NodeOrTuple) ->
-    gen_server:call(?MODULE, {start_client,NodeOrTuple}, infinity).
+    case valid_node(NodeOrTuple) of
+        true -> gen_server:call(?MODULE, {start_client,NodeOrTuple}, infinity);
+        false -> {error, {badrpc, badnode}}
+    end.
+
+valid_node({Node, _Tag}) when Node =:= node() -> true;
+valid_node({Node, _Tag}) -> lists:member(Node, nodes());
+valid_node(Node) when Node =:= node() -> true;
+valid_node(Node) -> lists:member(Node, nodes()).
 
 %%% ===================================================
 %%% Behaviour callbacks

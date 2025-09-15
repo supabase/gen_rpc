@@ -91,6 +91,34 @@ call_with_receive_timeout(_Config) ->
 call_with_worker_kill(_Config) ->
     {badrpc, killed} = gen_rpc:call(?MASTER, timer, kill_after, [0]).
 
+abcast(_Config) ->
+    true = erlang:register(test_process_123, self()),
+    abcast = gen_rpc:abcast([node()], test_process_123, this_is_a_test),
+    receive
+        this_is_a_test -> ok;
+        _ -> erlang:error(invalid_message)
+    after
+        2000 -> erlang:error(timeout)
+    end.
+
+abcast_with_key(_Config) ->
+    true = erlang:register(test_process_123, self()),
+    abcast = gen_rpc:abcast([{node(), 123}], test_process_123, this_is_a_test),
+    receive
+        this_is_a_test -> ok;
+        _ -> erlang:error(invalid_message)
+    after
+        2000 -> erlang:error(timeout)
+    end.
+
+abcast_with_unregistered_name(_Config) ->
+    abcast = gen_rpc:abcast([node()], test_process_123, this_is_a_test),
+    receive
+        _ -> erlang:error(invalid_message)
+    after
+        500 -> ok
+    end.
+
 %% call_module_version_check_success(_Config) ->
 %%     stub_function = gen_rpc:call(?MASTER, {gen_rpc_test_helper, "1.0.0"}, stub_function, []).
 

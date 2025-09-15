@@ -51,7 +51,7 @@
 %%% ===================================================
 
 %% term_to_iovec/1 wrapper to conditionally compress based on threshold
--spec term_to_iovec(term()) -> ext_iovec.
+-spec term_to_iovec(term()) -> erlang:iovec().
 term_to_iovec(Term) ->
   {ok, Compress} = application:get_env(?APP, compress),
   do_term_to_iovec(Term, Compress).

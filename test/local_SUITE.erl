@@ -57,7 +57,9 @@ supervisor_black_box(_Config) ->
     true = erlang:is_process_alive(erlang:whereis(gen_rpc_acceptor_sup)),
     true = erlang:is_process_alive(erlang:whereis(gen_rpc_client_sup)),
     true = erlang:is_process_alive(erlang:whereis(gen_rpc_server_tcp)),
-    true = erlang:is_process_alive(erlang:whereis(gen_rpc_dispatcher)),
+    true = erlang:is_process_alive(erlang:whereis(gen_rpc_dispatcher_sup)),
+    DispatcherChildren = supervisor:count_children(gen_rpc_dispatcher_sup),
+    10 = proplists:get_value(active, DispatcherChildren),
     ok.
 
 %% Test main functions

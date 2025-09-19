@@ -7,7 +7,7 @@
 %%% Node type
 -type destination() :: {node(), _Tag}.
 
--type node_or_tuple() :: node() | destination().
+-type node_or_tuple() :: node() | destination.
 
 %% `gen_rpc' doesn't take advantage of atom indexing, so using short
 %% atom names saves a little bit of bandwidth.

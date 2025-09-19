@@ -93,7 +93,9 @@
         %% 0 means no compression, 9 max compression level
         {compress, 0},
         %% Threshold for compression to kick in
-        {compression_threshold, 1024}
+        {compression_threshold, 1024},
+        %% gen_rpc_dispatcher pool size
+        {dispatcher_pool_size, 10}
     ]},
     {modules, []}]
 }.

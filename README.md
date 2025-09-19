@@ -128,6 +128,8 @@ and pass them as the node list in the multi-node function.
 
 - `compression_threshold`: The minimum amount of bytes (default = 1024) needed to be worth compressing the TCP message sent.
 
+- `dispatcher_pool_size`: Number of `gen_rpc_dispatcher`s to start new clients.
+
 - `tcp_server_port`: The plain TCP port `gen_rpc` will use for incoming connections or `false` if you
   do not want plain TCP enabled. Only takes effect when `port_discovery` = `manual`.
 
@@ -307,7 +309,7 @@ In order to achieve the mailbox-per-node feature, `gen_rpc` uses a very specific
 
 - Whenever a client needs to send data to a remote node, it will perform a `whereis` to a process named after the remote node.
 
-- If the specified `client` process does not exist, it will request for a new one through the `dispatcher` process, which in turn will launch it through the appropriate `client` supervisor. Since this |`whereis` > request from dispatcher sequence > start client| can happen concurrently by many different processes, serializing it behind a `gen_server` allows us to avoid race conditions.
+- If the specified `client` process does not exist, it will request for a new one through the `dispatcher` pool of processes, which in turn will launch it through the appropriate `client` supervisor. Since this |`whereis` > request from dispatcher sequence > start client| can happen concurrently by many different processes, serializing it behind a `gen_server` allows us to avoid race conditions.
 
 - The `dispatcher` process will launch a new `client` process through the client's supervisor.
 

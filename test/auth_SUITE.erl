@@ -204,11 +204,16 @@ t_cr_invalid_server(Config) ->
                         gen_rpc:call(?BAD_NODE, ?MODULE, canary, [])),
            ?assertMatch({badrpc, badnode},
                         gen_rpc:call('badnode@8.8.8.8', ?MODULE, canary, [])),
+           ?assertMatch({error, {badrpc, badnode}},
+                        gen_server:call(gen_rpc_dispatcher_1, {start_client,'badnode@8.8.8.8'}, infinity)),
+
            %% Check with destination:
            ?assertMatch({badrpc, badnode},
                         gen_rpc:call({?BAD_NODE, foo}, ?MODULE, canary, [])),
            ?assertMatch({badrpc, badnode},
-                        gen_rpc:call({'badnode@8.8.8.8', foo}, ?MODULE, canary, []))
+                        gen_rpc:call({'badnode@8.8.8.8', foo}, ?MODULE, canary, [])),
+           ?assertMatch({error, {badrpc, badnode}},
+                        gen_server:call(gen_rpc_dispatcher_1, {start_client,{'badnode@8.8.8.8', foo}}, infinity))
        end,
        [ fun ?MODULE:prop_canary/1
        , fun ?MODULE:prop_no_fallback/1

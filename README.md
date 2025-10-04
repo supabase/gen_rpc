@@ -1,8 +1,5 @@
 # gen_rpc: A scalable RPC library for Erlang-VM based languages [![Run test case](https://github.com/emqx/gen_rpc/actions/workflows/run_test_case.yaml/badge.svg?branch=master)](https://github.com/emqx/gen_rpc/actions/workflows/run_test_case.yaml)
 
-Warning: don't use in the new products!
-This repo is maintained only temporary for legacy support.
-
 ## Overview
 
 - [Erlang Factory 2016 Talk](https://www.youtube.com/watch?feature=player_embedded&v=xiPnLACtNeo)
@@ -184,12 +181,6 @@ and pass them as the node list in the multi-node function.
 - `ipv6_only`: Boolean (default = false) to force server and client to use ipv6. This config only takes effect when `socket_ip` is a 8-tuple (IPv6).
 
 - `acceptor_socket_active_n`: Integer (default = 100) for RPC acceptor flow control.
-
-## Logging
-
-`gen_rpc` uses [hut](https://github.com/tolbrino/hut) for logging. This allows the developer to integrate the logging library of their choice by providing the appropriate definition in their `rebar.config`. The default logging facility of `hut` is SASL.
-
-For more information on how to enable `gen_rpc` to use your own logging facility, consult the [README.md](https://github.com/tolbrino/hut#supported-logging-backends) of `hut`.
 
 ## SSL Configuration
 

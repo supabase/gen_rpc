@@ -237,6 +237,7 @@ init({{Node,_Key}}) ->
 
 init({Node}) ->
     ok = gen_rpc_helper:set_optimal_process_flags(),
+    _ = erlang:process_flag(fullsweep_after, 20),
     case gen_rpc_helper:get_client_config_per_node(Node) of
         {error, Reason} ->
             ?log(error, "event=external_source_error action=falling_back_to_local reason=\"~s\"", [Reason]),

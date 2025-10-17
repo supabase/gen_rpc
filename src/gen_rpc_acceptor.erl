@@ -71,6 +71,7 @@ set_socket(Pid, Socket) when is_pid(Pid) ->
 %%% ===================================================
 init({Driver, Peer}) ->
     ok = gen_rpc_helper:set_optimal_process_flags(),
+    _ = erlang:process_flag(fullsweep_after, 20),
     {Control, ControlList} = gen_rpc_helper:get_rpc_module_control(),
     {DriverMod, _DriverPort, DriverClosed, DriverError} = gen_rpc_helper:get_server_driver_options(Driver),
     ?log(info, "event=start driver=~s peer=\"~s\"", [Driver, gen_rpc_helper:peer_to_string(Peer)]),

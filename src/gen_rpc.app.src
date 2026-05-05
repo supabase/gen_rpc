@@ -95,7 +95,10 @@
         %% 0 means no compression, 9 max compression level
         {compress, 0},
         %% Threshold for compression to kick in
-        {compression_threshold, 1024}
+        {compression_threshold, 1024},
+        %% Extra process flags applied to client and acceptor processes.
+        %% Example: [{fullsweep_after, 20}]
+        {extra_process_flags, []}
     ]},
     {modules, []}]
 }.

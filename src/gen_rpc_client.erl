@@ -248,6 +248,7 @@ init({NodeOrTuple}) ->
                           NodeOrTuple
                   end,
     ok = gen_rpc_helper:set_optimal_process_flags(),
+    ok = gen_rpc_helper:set_extra_process_flags(),
     case gen_rpc_helper:get_client_config_per_node(Node) of
         {error, Reason} ->
             ?log(error, "external_source_error",

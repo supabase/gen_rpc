@@ -183,6 +183,12 @@ and pass them as the node list in the multi-node function.
 
 - `acceptor_socket_active_n`: Integer (default = 100) for RPC acceptor flow control.
 
+- `extra_process_flags`: A list of `{Flag, Value}` tuples applied via `erlang:process_flag/2` to each client and acceptor process on startup. Defaults to `[]`. Example:
+
+    ```erlang
+    {extra_process_flags, [{fullsweep_after, 20}]}
+    ```
+
 - `logger`: A module which exports `log/4` API for RPC client events: `log(Level, Type, Msg, Data)` where:
   - `Level`: is the log level, `debug`, `info`, `error`, etc
   - `Type`: The type of message, possible values are: `client_init`, `client_send`, ... TODO

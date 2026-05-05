@@ -27,6 +27,7 @@
          socket_to_string/1,
          host_from_node/1,
          set_optimal_process_flags/0,
+         set_extra_process_flags/0,
          is_driver_enabled/1,
          merge_sockopt_lists/2,
          get_user_tcp_opts/1,
@@ -92,6 +93,12 @@ set_optimal_process_flags() ->
     _ = erlang:process_flag(trap_exit, true),
     _ = erlang:process_flag(priority, high),
     _ = erlang:process_flag(message_queue_data, off_heap),
+    ok.
+
+-spec set_extra_process_flags() -> ok.
+set_extra_process_flags() ->
+    Flags = application:get_env(?APP, extra_process_flags, []),
+    lists:foreach(fun({Flag, Value}) -> _ = erlang:process_flag(Flag, Value) end, Flags),
     ok.
 
 %% Merge lists that contain both tuples and simple values observing

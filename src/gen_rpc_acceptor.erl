@@ -73,6 +73,7 @@ set_socket(Pid, Socket) when is_pid(Pid) ->
 %%% ===================================================
 init({Driver, Peer}) ->
     ok = gen_rpc_helper:set_optimal_process_flags(),
+    ok = gen_rpc_helper:set_extra_process_flags(),
     {Control, ControlList} = gen_rpc_helper:get_rpc_module_control(),
     {DriverMod, _DriverPort, DriverClosed, DriverError} = gen_rpc_helper:get_server_driver_options(Driver),
     {ok, waiting_for_socket, #state{driver=Driver,

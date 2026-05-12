@@ -10,7 +10,7 @@ jobs:
             image: ghcr.io/emqx/emqx-builder/5.3-9:1.15.7-26.2.5-3-ubuntu22.04
 
         steps:
-        - uses: actions/checkout@v4.2.2
+        - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
         - name: Compile
           run: |
@@ -20,7 +20,7 @@ jobs:
           run: |
             make test
 
-        - uses: actions/upload-artifact@v4.6.2
+        - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
           if: always()
           with:
             name: logs
